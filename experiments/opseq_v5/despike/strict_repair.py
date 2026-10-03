@@ -67,6 +67,21 @@ def cut_and_cap(V, F, cyc):
             if len(ring): V2[y] = V2[y] + 0.3 * (V2[ring].mean(0) - V2[y])
     return V2, F2
 
+def remove_handle_dlfl(V, F, cyc):
+    """The same cut as cut_and_cap, executed as the TopMod DLFL operator `remove_handle` (delete_edge on the band's
+    spokes + stellate): the mesh is a valid 2-manifold after every single step. Returns (V, F) or None."""
+    import sys as _s; _s.path.insert(0, os.path.join(HERE, "..", "..", ".."))
+    from topmod.io import from_arrays, to_triangle_arrays
+    from topmod.high_level_ops import remove_handle
+    for order in (cyc, (cyc[0], cyc[2], cyc[1])):              # band on either side of the neck
+        mesh = from_arrays(V, F); vs = list(mesh.vertices.values())
+        try: remove_handle(mesh, vs[order[0]], vs[order[1]], vs[order[2]])
+        except ValueError: continue
+        vv, ff = to_triangle_arrays(mesh); V2 = np.asarray(vv, float); F2 = np.asarray(ff, np.int64)
+        E = np.sort(np.concatenate([F2[:, [0, 1]], F2[:, [1, 2]], F2[:, [2, 0]]]), 1); _, cnt = np.unique(E, axis=0, return_counts=True)
+        if (cnt == 2).all(): return V2, F2                       # simplicial too (no doubled edge from the cap)
+    return None
+
 def repair(V, F, AIR, log=print):
     removed = 0
     for _ in range(8):
@@ -76,11 +91,14 @@ def repair(V, F, AIR, log=print):
         for cyc in nonface_3cycles(F):
             P = V[list(cyc)]; vec = np.round([la.linking(P, A) for A in AIR])
             if np.any(vec != 0): continue                                   # this neck encloses a real tunnel: keep
-            res = cut_and_cap(V, F, cyc)
+            use_dlfl = os.environ.get("REPAIR_ARRAY", "0") != "1"
+            pre = cut_and_cap(V, F, cyc)                                     # cheap array-level predictor: is this cycle a non-separating neck at all?
+            if pre is None: continue
+            res = remove_handle_dlfl(V, F, cyc) if use_dlfl else pre          # the actual edit is the DLFL operator
             if res is None: continue                                         # separating pinch or irregular: not a handle
             V2, F2 = res; a1 = la.audit(V2, F2, AIR)
             if a1["genus"] == a0["genus"] - 1 and a1["rank"] == a0["rank"]:
-                log(f"[repair] removed micro-handle at {np.round(P.mean(0), 3)} (cycle {cyc}, perimeter {np.linalg.norm(P - np.roll(P, 1, 0), axis=1).sum():.3f}): genus {a0['genus']} -> {a1['genus']}, tunnels realised {a1['rank']}")
+                log(f"[repair] removed micro-handle [{'DLFL remove_handle' if use_dlfl else 'array cut'}] at {np.round(P.mean(0), 3)} (cycle {cyc}, perimeter {np.linalg.norm(P - np.roll(P, 1, 0), axis=1).sum():.3f}): genus {a0['genus']} -> {a1['genus']}, tunnels realised {a1['rank']}")
                 V, F = V2, F2; removed += 1; done = True; break
         if not done: log(f"[repair] genus {a0['genus']} > tunnels realised {a0['rank']} but no removable micro-handle found"); break
     return V, F, removed

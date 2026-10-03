@@ -169,7 +169,7 @@ Requires: PyTorch (cu-enabled), nvdiffrast, open3d, scipy/scikit-image. Tested o
 ## The TopMod library underneath
 
 The topology machinery is a pure-Python implementation of Dr. Ergun Akleman's **TopMod** DLFL mesh
-system: **29 operators** (4 fundamental + 6 high-level + 7 classic subdivision + 12 remeshing
+system: **30 operators** (4 fundamental + 7 high-level incl. `add_handle` / `remove_handle` + 7 classic subdivision + 12 remeshing
 schemes) with closed-form oracle tests, **100% differentiable** position maps (PyTorch), a
 **Blender addon** (21 operators in Edit Mode), and an autoregressive mesh tokenizer. Zero required
 dependencies for the core.
