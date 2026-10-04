@@ -14,7 +14,7 @@ export SEED=${SEED:-0}; P=${TAGP:-v4}; [ "$SEED" != "0" ] && P=${P}s${SEED}
 export SNAPSHOT_EVERY=${SNAPSHOT_EVERY:-0} SNAPSHOT_MODE=64
 F4="\[adapt\] step.*->\|\[final\]\|\[vram\]\|Traceback\|Error"
 declare -A GT=([armadillo]=0 [kitten]=1 [rockerarm]=1 [fertility]=4 [threeholes]=3 [botijo]=5 [heptoroid]=22)
-_gt_of() { local g="${GT[$1]:-?}"; echo "$g"; }
+_gt_of() { local g="${GT[$1]:-${GT_GENUS:-?}}"; echo "$g"; }   # GT_GENUS: ground-truth genus of a shape that is not in the table (benchmark runs)
 genus_of() { python3 -c "
 import numpy as np,sys; z=np.load(sys.argv[1]); V,F=z['verts'],z['tris'].astype(np.int64)
 E=len(np.unique(np.sort(np.concatenate([F[:,[0,1]],F[:,[1,2]],F[:,[2,0]]]),1),axis=0)); print((2-(len(V)-E+len(F)))//2)" $1; }
@@ -87,6 +87,7 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
   cp $O/cow_${S}_${T}_p5.npz despike/results_genus/${T}_raw.npz; cp $O/cow_${S}_${T}_auto.npz despike/results_genus/${T}_auto.npz
   G=$(genus_of despike/results_genus/${T}_auto.npz); echo "[RESULT] $S $P: final genus $G (GT $(_gt_of $S)) $([ "$G" = "$(_gt_of $S)" ] && echo OK || echo MISMATCH)"
   RK=$(SHAPE=$S python3 despike/linking_audit.py --rank despike/results_genus/${T}_auto.npz 2>/dev/null | tail -1); echo "[STRICT] $S $P: tunnels realised by the surface $(echo $RK | cut -d' ' -f1)/$(echo $RK | cut -d' ' -f3) (genus $(echo $RK | cut -d' ' -f2), tiny loops $(echo $RK | cut -d' ' -f4))"
+  echo "[HEALTH] $S $P: $(python3 despike/mesh_health.py despike/results_genus/${T}_auto.npz $O/cow_${T}_early.npz 2>/dev/null | tail -1)"
   guard; if [ -n "${REAL_DATA:-}" ]; then
     REAL_DATA=$REAL_DATA SHAPE=$S python3 despike/exam_real.py raw=despike/results_genus/${T}_raw.npz taubin=despike/results_genus/${T}_auto.npz 2>&1 | grep -E "exam_real|Error" | sed "s/^/[$S exam] /"
   else

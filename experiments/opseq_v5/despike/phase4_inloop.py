@@ -699,7 +699,14 @@ for step in range(STEPS):
                         _thin_cache["n"] = -1     # topology changed: recompute on the current mesh
                         _, _thin = thin_weights(torch.tensor(Vn, dtype=torch.float32, device=DEVICE), torch.tensor(Fa, dtype=torch.long, device=DEVICE))
                         _vthr[_thin.cpu().numpy()] = 0.0        # never collapse an edge touching a thin-part vertex
-                    Vn, Fa, nc = collapse_short_edges(Vn, Fa, COLLAPSE_RATIO, int(ADAPT_COLLAPSE_FRAC * len(Fa)), vthr=_vthr)
+                    # 2026-10-04: split and collapse must stay paired (see above). When the SI gate closes the splits, a
+                    # collapse-only pass shrinks the mesh every 50 steps and nothing ever grows it back: thin plates enter
+                    # this stage 60-70 % self-intersecting, never get under the gate, and end with 8-40 vertices
+                    # (Thingi10K batch: 6 of 31 runs). While the gate is closed for SI, do not coarsen either.
+                    if (not gate_open) and si_frac > ADAPT_SI_GATE and int(os.environ.get("ADAPT_GATE_COLLAPSE", "1")):
+                        nc = 0; print(f"[adapt] step {step+1}: SI gate closed -> no collapse either (mesh size kept at V={len(Vn)})", flush=True)
+                    else:
+                        Vn, Fa, nc = collapse_short_edges(Vn, Fa, COLLAPSE_RATIO, int(ADAPT_COLLAPSE_FRAC * len(Fa)), vthr=_vthr)
                     print(f"[adapt] step {step+1}: +{ns} split edges, -{nc} collapses -> V={len(Vn)} F={len(Fa)} ({time.time()-_t0:.0f}s collapse)", flush=True)
                     _target.V_last = Vn.copy()
                     if getattr(_target, 'ref_len', None) is not None and len(_target.ref_len) != len(Vn): _target.ref_len = None
