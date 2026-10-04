@@ -295,6 +295,19 @@ Diagnostics: Stage 3 re-run on 8 chains with every round's mesh kept (29 accepte
 - A stricter Stage-3 rule "a handle must reduce some loop's crossings" would reject real handles: big slab drills
   often need more than one 400-step loop before the loop is free (sx1 r1, sx3 r3, sx4 r1, sx6 r1, sx7 r2).
 
+## 7j. 2026-10-03: micro-handle removal as a DLFL operator (`remove_handle`)
+
+The cut-and-cap of 7f edited triangle arrays. It is now a TopMod operator, `remove_handle(mesh, va, vb, vc)`
+(topmod/high_level_ops.py, docs #10b), the inverse of `add_handle`: on one side of the 3-vertex neck the faces
+touching the neck form a band; every band edge leaving a neck vertex is removed with `delete_edge`. All but one
+deletion merge two faces, exactly one has the same face on both sides and splits it (the genus-changing step; this
+case of `delete_edge` was unsupported before and is the inverse of the cross-face `insert_edge`). The neck triangle
+caps one side, the remaining polygon is closed with `stellate`. Valid 2-manifold after every step.
+`strict_repair.py` uses it for the edit (array cut kept as a feasibility predictor only; 7-11 s per repair).
+Tests: 109 library tests incl. add_handle -> remove_handle and insert_edge -> delete_edge round trips.
+Regression dl (fertility x8 + four other shapes x1): 12/12 strict-correct, micro-handles removed by the operator
+in 5 of 8 fertility chains, CD 0.0063-0.0064, VolIoU 0.990-0.992.
+
 ## 8. Open problems
 
 1. Recalibrate on stage-3 mid-round meshes: geodesic threshold (a true contact at 20) and the handling
