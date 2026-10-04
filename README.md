@@ -1,194 +1,176 @@
-# Topo-Carving
+# GenesisTopmod
 
-**Discovering surface topology from multi-view silhouettes — with guaranteed-manifold operators.**
+**Topology-Guaranteed Mesh Generation via TopMod Operators**
 
-Most differentiable mesh reconstruction assumes the topology (a template with the right number of
-holes) and only preserves it. **Topo-Carving discovers the genus from the images**: a space-carving
-oracle tells the optimizer *how many* tunnels the shape has and *where* they are, and every topology
-change is executed as a TopMod **DLFL `add_handle`** — so the mesh is a valid orientable 2-manifold,
-watertight, after **every** step, and the genus can never drift silently.
+A pure-Python implementation of Dr. Ergun Akleman's TopMod topological mesh
+theory — 30 mesh operators that guarantee valid orientable 2-manifold output
+at every step. Includes a Blender addon, differentiable (PyTorch) geometry,
+and an autoregressive tokenizer for AI mesh generation.
 
-## The whole algorithm in one strip
+## Features
 
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/fig_evolution_strip.png" width="980" alt="evolution: sphere to genus-4"/>
-</p>
+- **30 mesh operators** — 4 fundamental (Akleman & Chen 2003) + 7 high-level
+  (incl. `add_handle` and its inverse `remove_handle`)
+  + 7 classic subdivision + 12 TopMod remeshing schemes — all with closed-form
+  oracle tests
+- **100% differentiable** — every operator has a PyTorch-differentiable
+  position map (`topmod/diffgeo.py`); 17 via sparse-matrix symbolic trace,
+  7 via dedicated torch implementations
+- **Blender addon** — one-click install, 21 operators in Edit Mode with
+  parameter sliders, Mesh menu + N-panel sidebar
+- **Autoregressive tokenizer** — mesh ↔ integer token sequences for
+  generative models; append-only vocabulary (backward compatible)
+- **Pure Python core** — zero external dependencies (no NumPy required);
+  torch is optional (only for `diffgeo.py`)
 
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/gifs/fertility_evolution_hd.gif" width="680" alt="fertility reconstruction: genus discovered 0 -> 4"/>
-<br/><i>Live: fertility from a genus-0 icosphere to the correct genus-4 statue. The title bar tracks
-the stage and the genus — watch <code>add_handle</code> open each tunnel.</i>
-</p>
-
-## Highlights (golden v6.5)
-
-> **Status (2026-10-03, golden v6.5): strict surface topology.** Genus is only a count. v6.5 checks that the
-> mesh surface *realises every tunnel of the carved hull*: a GT-free audit computes linking numbers between the
-> mesh's handle loops and closed curves through the hull's tunnels
-> ([`linking_audit.py`](experiments/opseq_v5/despike/linking_audit.py)). Under this audit v6.4 had the right
-> genus in every run but on fertility only 6/21 runs had the right surface (one tunnel was open only through
-> interpenetrating parts, the fourth handle was a hidden micro-handle). v6.2/v6.3 results are withdrawn
-> (bridge bug); v6.4 numbers are genus-count statements.
-
-- **Strict topology, five shapes**: fertility (genus 4), threeholes (3), kitten (1), rockerarm (1), armadillo (0):
-  **15/15 runs** with the right genus *and* every hull tunnel realised by a surface handle; fertility alone
-  16/16 with the final rules (v6.4: 6/21). See
-  [`GOLDEN.md`](experiments/opseq_v5/despike/results64v/GOLDEN.md) v6.5.
-- **How**: handles that realise no tunnel (micro-handles) are removed on the refined mesh; missing ones are added
-  by a 2-second near-pair detector and accepted only if the number of realised tunnels goes up by exactly one;
-  the mesh is re-audited after the final refine.
-- **No time tail**: 4-9 min per chain on an RTX 5090 (v6.4: median 5.5 min on fertility, worst case 25 min).
-- **Count-first propose-and-verify** and **hull-guided completion** still drive the coarse discovery stage.
-- Held-out silhouette IoU **0.9972** on armadillo (DMesh plateaus at 0.989), volume IoU **0.992** on fertility.
-
-## What `add_handle` actually does
-
-TopMod's `add_handle(f1, f2)` deletes two faces and stitches their boundary loops together with a ring
-of new side quads — a tube. Applied to the two pages of a thin membrane, it **drills a through-hole**:
-
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/fig_add_handle_donut.png" width="980" alt="add_handle on a membrane donut"/>
-</p>
-
-A donut whose hole is covered by a thin membrane is genus 0 (panels 1–2). `add_handle` on the
-membrane's top face (red) and bottom face (blue) deletes both and joins their rims with 20 side quads
-(orange, panel 4) — the tube wall; inside the tube is air, so the genus becomes 1 (panel 3). In the
-pipeline, DLFL collapses then absorb the leftover membrane and the hole grows to the real tunnel
-(panel 5). Real TopMod output, reproducible with
-[`demo_add_handle_donut.py`](experiments/opseq_v5/despike/demo_add_handle_donut.py).
-If the two faces had **air** between them instead of membrane material, the same operator would build
-a *bridge* instead of drilling a hole — still genus +1, but a wrong tunnel. Keeping `add_handle` fed
-with genuine membranes is exactly what the propose-and-verify gate is for.
-
-## How it works
-
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/fig_pipeline.png" width="920" alt="pipeline"/>
-</p>
-
-**1 — Carve the oracle.** A voting visual hull is carved from the input silhouettes once. Its Euler
-number gives the tunnel **count** g\* (morphological closing ladder, mode over radii); a
-closing-ladder plug analysis gives each tunnel's **location** on demand.
-
-**2 — See the membranes.** Faces whose interior samples sit in hull *air* are membranes blocking a
-tunnel — the orange patches below are literally what the detector proposes to open:
-
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/fig_oracle_membranes_plugs.png" width="560" alt="oracle: membranes + tunnel plugs"/>
-</p>
-
-**3 — Propose-and-verify every handle.** Each membrane pair becomes a DLFL `add_handle` (manifold by
-construction), kept only if a count-first gate and a differentiable-render check agree. The loop
-stops exactly at g\*. When the refined mesh hugs the hull and membranes vanish, the oracle's plug
-locations take over (hull-guided completion).
-
-**4 — TopMod operators run the whole pipeline, not just the topology step.** `add_handle` is the
-only *genus-changing* operator; everything else is topology-preserving TopMod machinery:
-
-| stage | TopMod operators at work |
-|---|---|
-| init | `make_icosahedron`, `catmull_clark` (coarse-to-fine levels) |
-| carve to hull (DR loop) | `flip`, `collapse_edge_tri` (link-condition guarded) |
-| genus discovery | `insert_edge`/`delete_edge` (merge a membrane into one rim polygon), `subdivide_edge` (rim alignment), **`add_handle`** (genus +1, DR-verified) |
-| refine | `catmull_clark`, `subdivide_edge`, `collapse_edge_tri`, `flip` — driven by a Palfinger-style adaptive schedule, executed as DLFL ops |
-| final | Taubin smoothing (vertex positions only — topology untouched) |
-
-Because every one of these preserves the DLFL invariants, the mesh is manifold + watertight after
-**every** step, and the genus can only change at a verified `add_handle` — robustness **by
-construction**, not by a regularizer.
-
-## Results — genus discovered, never assumed
-
-| | |
-|:--:|:--:|
-| <img src="experiments/opseq_v5/despike/results_genus/gifs/threeholes_evolution_hd.gif" width="380"/> | <img src="experiments/opseq_v5/despike/results_genus/gifs/kitten_evolution_hd.gif" width="380"/> |
-| threeholes — discovered genus **3** | kitten — discovered genus **1** |
-| <img src="experiments/opseq_v5/despike/results_genus/gifs/rockerarm_evolution_hd.gif" width="380"/> | <img src="experiments/opseq_v5/despike/results_genus/gifs/armadillo_evolution_hd.gif" width="380"/> |
-| rockerarm — discovered genus **1** | armadillo — discovered genus **0** (no false tunnels) |
-
-1080p MP4 versions of all five runs:
-[`results_genus/gifs/*_evolution_hd.mp4`](experiments/opseq_v5/despike/results_genus/gifs/)
-
-## Comparison with prior work
-
-| Method | topology source | discovers genus? | manifold guarantee | genus drift possible? |
-|---|---|---|---|---|
-| Nicolet et al. (Large Steps) | fixed input mesh | no | no | yes (handle collapse) |
-| Gu et al. (ICASSP 2026) | template (count + rough location) | no | no | patched via PH prior |
-| DMesh | implicit (existence probs) | partially | no (self-prunes) | yes |
-| Palfinger | fixed | no | remesh-based | yes |
-| **Topo-Carving (ours)** | **discovered from the carved hull** | **yes** | **by construction (DLFL)** | **impossible by construction** |
-
-<p align="center">
-<img src="experiments/opseq_v5/despike/results_genus/fig_dmesh_compare.png" width="480" alt="DMesh comparison"/>
-<img src="experiments/opseq_v5/despike/results_genus/fig_ablation.png" width="440" alt="ablation"/>
-</p>
-
-Ablation (fertility, GT genus 4, n=15 per config, after the fix): removing the oracle collapses
-genus accuracy to **4/15** and fails in *both* directions (missed **and** spurious tunnels);
-membrane-checked hull-guided completion lifts 11/15 → 14/15. The count-first gate *alone* shows no
-measurable gain over the legacy threshold gate at n=15 (11/15 vs 13/15, within run-to-run noise) — an
-earlier claim that it did was withdrawn after the fix. Full study:
-[`GATE_DECISION_findings.md`](experiments/opseq_v5/despike/GATE_DECISION_findings.md) — including
-the honest negative result that a typed-decision language model is a coin flip at the decisive
-geometric decision.
-
-## Reproduce
+## Quick Start
 
 ```bash
-cd experiments/opseq_v5
-SHAPES="fertility threeholes kitten rockerarm armadillo" TAGP=repro \
-USE_JEV=1 GATE_BACKEND=count HULL_COMPLETE=1 bash despike/golden_chain.sh
-# prints [RESULT] <shape>: final genus G (GT g) OK per shape
-# and  [STRICT] <shape>: tunnels realised by the surface r/g*   (STRICT=0 reproduces v6.4)
-# add SNAPSHOT_EVERY=2 SNAPSHOT_HERO=1 to record the evolution GIFs
+git clone https://github.com/frankwings/GenesisTopmod.git
+cd GenesisTopmod
+
+# Run tests (381 core + 84 differentiable geometry = 465 total)
+python3 -m pytest tests/ -q --ignore=tests/test_manifold_loss.py --ignore=tests/test_pipeline.py
+
+# Try it
+python3 -c "
+from topmod import make_cube, catmull_clark, dual, honeycomb_subdivide
+mesh = honeycomb_subdivide(make_cube())
+print(f'Honeycomb cube: V={mesh.V()} E={mesh.E()} F={mesh.F()}')
+"
 ```
 
-Requires: PyTorch (cu-enabled), nvdiffrast, open3d, scipy/scikit-image. Tested on RTX 5090
-(torch 2.14 + cu130, sm_120).
+## Blender Addon
 
-| tag | what |
+### Download & Install
+
+1. Download `blender_addon/topmod_blender.zip` from this repo
+   ([direct link](https://github.com/frankwings/GenesisTopmod/raw/main/blender_addon/topmod_blender.zip))
+2. Open Blender (3.6+)
+3. **Edit → Preferences → Add-ons → Install...** → select the zip
+4. Check the box next to **"Mesh: TopMod (DLFL Mesh Operators)"**
+
+### Usage
+
+1. Select a mesh object → **Tab** to enter Edit Mode
+2. Open the sidebar: **N** → **TopMod** tab
+3. Click any operator — parameters appear in the bottom-left popup (or **F9**)
+4. **Ctrl+Z** to undo
+
+### Available Blender Operators
+
+| Category | Operators |
 |---|---|
-| `golden-v6.1` | baseline chain (fertility 13/15) |
-| `golden-v6.2` | count-first gate + hull-guided completion + plug-cache fix — result withdrawn (bridge bug) |
-| `golden-v6.3` | + late-handle seam refit (Stage 6b) — contains the bridge bug, superseded |
-| `golden-v6.4` | + handle-site check (winding number + exact hull air + geodesic crease guard), per-handle GT audit; genus count right, surface topology 6/21 on fertility |
-| `golden-v6.5` | + strict surface topology (linking-number audit, micro-handle removal, linking-verified late pass, re-audit after refine): 15/15 on five shapes |
+| High-Level | Stellate All |
+| Classic Subdivision | Catmull-Clark, Dual, Doo-Sabin, Simplest, Vertex Cutting, Loop, √3 |
+| TopMod Remeshing | Honeycomb, Star, Corner Cutting, Loop-Style, Fractal, Pentagonal, Pentagonal 2, Dual 12.6.4, Root-4, Checkerboard, DS BC-New, Dome |
+| Structural | Create Crust |
 
-## Documentation
+See [`blender_addon/README.md`](blender_addon/README.md) for the full guide
+with parameter details and tips.
 
-- [`PAPER_NOTES.md`](experiments/opseq_v5/despike/PAPER_NOTES.md) — paper skeleton: contributions,
-  ablation table, negative results, limitations
-- [`results64v/GOLDEN.md`](experiments/opseq_v5/despike/results64v/GOLDEN.md) — version log with all
-  measured numbers (incl. the fair face-count comparison vs DMesh)
-- [`SELLING_POINT_topology_robustness.md`](experiments/opseq_v5/despike/SELLING_POINT_topology_robustness.md)
-  — why genus drift is impossible by construction
-- [`real/CAPTURE_SPEC.md`](experiments/opseq_v5/real/CAPTURE_SPEC.md) — iPhone capture protocol for
-  real-data topology discovery (ARKit poses + SAM2 masks, tooling included)
+## Operator Reference
 
-## The TopMod library underneath
+Full documentation for all 30 operators with signatures, parameters,
+closed-form oracles, differentiability details, and before/after
+visualizations:
 
-The topology machinery is a pure-Python implementation of Dr. Ergun Akleman's **TopMod** DLFL mesh
-system: **30 operators** (4 fundamental + 7 high-level incl. `add_handle` / `remove_handle` + 7 classic subdivision + 12 remeshing
-schemes) with closed-form oracle tests, **100% differentiable** position maps (PyTorch), a
-**Blender addon** (21 operators in Edit Mode), and an autoregressive mesh tokenizer. Zero required
-dependencies for the core.
+📄 [`docs/operators.md`](docs/operators.md)
 
-→ Full library documentation, quick start, Blender install guide and the operator reference:
-**[`LIBRARY.md`](LIBRARY.md)** · [`docs/operators.md`](docs/operators.md)
+### Quick Reference Table
 
-## Citation
+| # | Operator | Token | Differentiable | Oracle (V', E', F') |
+|---|---|---|---|---|
+| 1 | `create_vertex` | CV | ✅ param | V+1, E+0, F+1 |
+| 2 | `delete_vertex` | — | — | V−1, E+0, F−1 |
+| 3 | `insert_edge` | IE | ✅ identity | E+1, ±F |
+| 4 | `delete_edge` | DE | ✅ identity | E−1, ±F |
+| 5 | `extrude_face` | — | ✅ torch | V+n, E+2n, F+n |
+| 6 | `stellate` | — | ✅ torch | V+1, E+n, F+n−1 |
+| 7 | `subdivide_edge` | — | ✅ torch | V+1, E+1, F+0 |
+| 8 | `subdivide_face` | — | ✅ torch | V+1, E+n, F+n−1 |
+| 9 | `add_handle` | HDL | ✅ identity | χ−2, genus+1 |
+| 10 | `stellate_all` | STA | ✅ linear | V+F, 3E, 2E |
+| 11 | `catmull_clark` | CC | ✅ linear | V+E+F, 4E, 2E |
+| 12 | `dual` | DUAL | ✅ linear | F, E, V |
+| 13 | `doo_sabin` | DS | ✅ linear | 2E, 4E, V+E+F |
+| 14 | `simplest_subdivide` | SIMP | ✅ linear | E, 2E, F+V |
+| 15 | `vertex_cutting` | VC | ✅ linear | 2E, 3E, F+V |
+| 16 | `loop_subdivide` | LOOP | ✅ linear | V+E, 4E, 4F |
+| 17 | `sqrt3_subdivide` | SQRT3 | ✅ linear | V+F, 3E, 3F |
+| 18 | `honeycomb_subdivide` | HONEY | ✅ linear | 2E, 3E, F+V |
+| 19 | `star_subdivide` | STAR | ✅ torch | V+F+2E, 9E, 6E |
+| 20 | `corner_cutting` | CCUT | ✅ linear | 2E, 4E, V+E+F |
+| 21 | `loop_style_subdivide` | LSTYLE | ✅ linear | V+E, 4E, F+2E |
+| 22 | `fractal_subdivide` | FRAC | ✅ torch | V+E+F, 6E, 4E |
+| 23 | `pentagonal_subdivide` | PENT | ✅ linear | V+2E+F, 5E, 2E |
+| 24 | `pentagonal2_subdivide` | PENT2 | ✅ linear | V+3E, 6E, F+2E |
+| 25 | `dual1264_subdivide` | D1264 | ✅ linear | 4E, 6E, F+E+V |
+| 26 | `root4_subdivide` | ROOT4 | ✅ linear | V+2E, 4E, F+E |
+| 27 | `checkerboard_remesh` | CHKB | ✅ linear | V+4E, 9E, F+4E |
+| 28 | `ds_bc_new_subdivide` | DSBC | ✅ linear | V+4E, 7E, F+2E |
+| 29 | `dome_subdivide` | DOME | ✅ torch | V+59E, 116E, F+56E |
+| — | `create_crust` | CRUST | ✅ torch | 2V, 2E, 2F |
 
-Paper in preparation. For now:
+**✅ linear** = sparse matrix trace (gradients to vertex positions)
+**✅ torch** = dedicated torch implementation (gradients to positions + parameters)
 
-```bibtex
-@misc{topocarving2026,
-  title  = {Topo-Carving: Discovering Surface Topology from Multi-View Silhouettes
-            with Guaranteed-Manifold Operators},
-  author = {GenesisTopmod team},
-  year   = {2026},
-  url    = {https://github.com/frankwings/GenesisTopmod}
-}
+## Differentiable Geometry
+
+```python
+import torch
+from topmod.diffgeo import DiffSequence
+
+# Compose operators into an end-to-end differentiable map
+seq = DiffSequence("cube").append("DS").append("CC").append("CRUST", thickness=0.1)
+final_verts = seq.forward()     # differentiable w.r.t. seq.verts0 (8 cube vertices)
+tris = seq.triangles()          # int64 [T, 3] for nvdiffrast
+
+loss = (final_verts ** 2).sum()
+loss.backward()                 # gradients reach the 8 base-primitive vertices
 ```
 
-Built on Dr. Ergun Akleman's TopMod topological mesh modeling theory.
+See [`docs/diffgeo.md`](docs/diffgeo.md) for the full API.
+
+## Project Structure
+
+```
+topmod/              Pure-Python DLFL mesh library (zero dependencies)
+  dlfl.py            Half-edge data structure
+  operators.py       4 fundamental operators (Akleman & Chen 2003)
+  high_level_ops.py  Extrude, stellate, add_handle, subdivide
+  subdivision.py     Catmull-Clark
+  remeshing.py       20 remeshing schemes (clean-room from reference semantics)
+  diffgeo.py         PyTorch differentiable geometry (optional torch dependency)
+  tokenizer.py       Autoregressive mesh tokenizer
+  validate.py        2-manifold validation
+  io.py              OBJ import/export
+
+blender_addon/       Blender addon (3.6+)
+  topmod_blender/    Installable addon package
+  topmod_blender.zip Pre-built zip for Install from Disk
+  build_zip.sh       Rebuild script
+  README.md          Installation & usage guide
+
+pipeline/            Differentiable rendering pipeline
+  geometry_optimizer.py   nvdiffrast silhouette fitting
+  topology_builder.py     DLFL → GPU tensor export
+  manifold_loss.py        Differentiable manifold loss
+
+docs/
+  operators.md       Full operator reference (#1–#29) with visualizations
+  diffgeo.md         Differentiable geometry API
+  reference_semantics.md  Clean-room semantics extraction
+  vocabulary_roadmap.md   Token vocabulary evolution
+
+tests/               465 tests (381 core + 84 diffgeo)
+scripts/             Gallery generator
+```
+
+## References
+
+- Akleman & Chen 2003 — "A minimal and complete set of operators for the
+  development of robust manifold mesh modelers"
+
+---
+*Zengyn42 · Genesis Research*
