@@ -131,8 +131,13 @@ Full description — every stage, rule, parameter, file and known problem:
 | rockerarm | 1 | 6/6 | 6/6 | 0.987 | 4.3–5.7 min |
 | threeholes | 3 | 6/6 | 6/6 | 0.991 | 5.2–5.7 min |
 | fertility | 4 | 16/16 | 16/16 | 0.988–0.992 | 5.6–8.7 min |
-| botijo | 5 | 2/2 | 2/2 | 0.996–0.998 | 7.7–9.6 min |
+| botijo | 5 | 3/3 | 3/3 | 0.996–0.998 | 7.7–9.6 min |
 | heptoroid | 22 | refused by the oracle check | — | — | — |
+
+<p align="center">
+<img src="despike/results_genus/gifs/botijo_evolution_hd.gif" width="680" alt="botijo reconstruction: genus discovered 0 -> 5"/>
+<br/><i>Botijo from a sphere to genus 5: three tunnels drilled at the coarse stage, two joins on the refined mesh.</i>
+</p>
 
 <p align="center">
 <img src="despike/results_genus/fig_botijo.png" width="760" alt="botijo: ground truth vs ours"/>

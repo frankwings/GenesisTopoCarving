@@ -25,6 +25,14 @@ STRICT=${STRICT:-$([ -n "${REAL_DATA:-}" ] && echo 0 || echo 1)}
 chain() { S=$1; T0=$(date +%s); T=${S}_$P
   if [ "$SNAPSHOT_EVERY" != "0" ]; then FD=$PWD/out_liou/frames_${P}_$S; export SNAPSHOT_DIR=$FD; mkdir -p $FD; else unset SNAPSHOT_DIR; fi
   echo "##### $S: golden v3 chain ($P, seed $SEED), GT genus $(_gt_of $S)"
+  # Oracle check (2026-10-04): the hull genus must settle (three consecutive closing radii agree and equal g*). If it
+  # does not (thin walls / concavities no silhouette sees: heptoroid 40/31/44/45/31/5), every later decision would
+  # rest on a wrong oracle and the mesh ends up destroyed - refuse instead. ORACLE_CHECK=0 forces the run; skipped for
+  # REAL_DATA and when the genus is given (GT_MODE).
+  if [ "${ORACLE_CHECK:-1}" = "1" ] && [ -z "${REAL_DATA:-}" ] && [ -z "${GT_MODE:-}" ] && [ ! -f $O/cow_${S}_${T}_auto.npz ]; then
+    OC=$(SHAPE=$S python3 despike/oracle_check.py 2>/dev/null | tail -1); echo "[$S 0] oracle check: $OC"
+    case "$OC" in unstable*) echo "[RESULT] $S $P: REFUSED - oracle unstable (hull genus per closing radius 1..6: ${OC#unstable }); shape is outside the method's range (thin walls / silhouette-invisible concavities). ORACLE_CHECK=0 to force."; echo "[$S] wall $(( $(date +%s) - T0 ))s"; return 0;; esac
+  fi
   if [ -f $O/cow_${T}_cc3.npz ]; then echo "[$S 1] skip"; else guard; env SNAPSHOT_TITLE="Stage 1" MODE=64v SHAPE=$S TAG=${T}_cc3 STOP_AFTER=cc3 python3 -u despike/run_64v.py 2>&1 | grep --line-buffered "STOP_AFTER\|Traceback\|Error" | sed "s/^/[$S 1] /"; fi
   if [ -f $O/cow_${S}_${T}_cc3p4.npz ]; then echo "[$S 2] skip"; else guard; env SNAPSHOT_TITLE="Stage 2 [DLFL clean loop, coarse]" MODE=64v SHAPE=$S TAG=${T}_cc3p4 STEPS=400 MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.5 COLLAPSE_FRAC=0.02 SI_PUSH=0.15 BASE_NPZ=$O/cow_${T}_cc3.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "\[final\]\|Traceback\|Error" | sed "s/^/[$S 2] /"; fi
   if [ -f $O/cow_${T}_hlast.npz ]; then echo "[$S 3] skip"; else guard; rm -f $O/cow_${S}_${S}_hlast.npz
