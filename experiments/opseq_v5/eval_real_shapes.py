@@ -57,6 +57,10 @@ CAMERA_RADIUS = 3.0
 
 BUNNY_PATH = ("/home/kingy/Projects/Genesis/GenesisExp/GenesisHunyuan/.venv/"
               "lib/python3.12/site-packages/pymeshlab/tests/sample_meshes/bunny.obj")
+# SHAPE_DIR=<dir> (2026-10-03): read <SHAPE>.obj from another directory (external benchmark models, e.g. shapes_ext/
+# with botijo / heptoroid from Gao, Gu et al.). Every script resolves shapes as dirname(BUNNY_PATH)/<SHAPE>.obj.
+if os.environ.get("SHAPE_DIR"):
+    BUNNY_PATH = os.path.join(os.path.abspath(os.environ["SHAPE_DIR"]), "bunny.obj")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
