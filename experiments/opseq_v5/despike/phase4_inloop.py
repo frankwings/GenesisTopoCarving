@@ -677,6 +677,19 @@ for step in range(STEPS):
                             _fm = _mov[Fa].any(1); ratio[_fm] = 0.0
                             print(f"[adapt] step {step+1}: velocity guard excluded {100*_fm.mean():.0f}% of faces (still moving)", flush=True)
                     gate_open = si_frac <= ADAPT_SI_GATE and len(Fa) < ADAPT_MAX_F
+                    # 2026-10-05 deadlock: a mesh too coarse for a thin part self-intersects (edge > thickness), the gate
+                    # then forbids the very refinement that would cure it, and SI hovers just above the gate for the whole
+                    # stage (t10k_81291 / 118298 / 91455 / 113858: 30-33 % after 1200 steps, V unchanged). After
+                    # ADAPT_GATE_PATIENCE closed passes in a row, split anyway - tangled faces and their ring are still
+                    # excluded one by one (ratio[si_bad] = 0 above), so only clean regions are refined.
+                    # RESULT (gate_test, 2026-10-05): WORSE. With the gate forced open the collapse pass resumes everywhere while
+                    # splits are allowed only on the few clean faces -> the mesh shrinks again (V 2600-3900 -> 194-440). Disabled by
+                    # default (patience = 1e6); kept as a switch for the record.
+                    _gate_closed_n = 0 if gate_open else globals().get("_gate_closed_n", 0) + 1
+                    globals()["_gate_closed_n"] = _gate_closed_n
+                    if (not gate_open) and len(Fa) < ADAPT_MAX_F and _gate_closed_n > int(os.environ.get("ADAPT_GATE_PATIENCE", "1000000")):
+                        print(f"[adapt] step {step+1}: SI gate closed for {_gate_closed_n} passes (SI {100*si_frac:.1f}%): refining the clean regions anyway", flush=True)
+                        gate_open = True
                     if not gate_open:
                         print(f"[adapt] step {step+1}: splits skipped (SI {100*si_frac:.1f}% > gate {100*ADAPT_SI_GATE:.0f}% or F>={ADAPT_MAX_F}); collapse/flip only", flush=True)
                     fids = np.where(ratio > ADAPT_SRATIO)[0] if gate_open else np.zeros(0, int)

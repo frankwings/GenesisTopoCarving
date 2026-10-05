@@ -33,6 +33,7 @@ LAM, MU = float(os.environ.get("LAM", "0.5")), float(os.environ.get("MU", "-0.53
 BASE_NPZ = os.environ["BASE_NPZ"]
 TAG = os.environ.get("TAG", f"taubin{ITERS}")
 AUTO = int(os.environ.get("AUTO", "0"))
+TAUBIN_TOL = float(os.environ.get("TAUBIN_TOL", "0.003"))   # smoothing may not cost more than this in training-view IoU
 AUTO_MIN = int(os.environ.get("AUTO_MIN", "2"))  # floor: training IoU under-smooths (it rewards jitter that fits the training views)   # pick the iteration count that maximizes TRAINING-view IoU (no exam leakage)
 ADAPTIVE = int(os.environ.get("ADAPTIVE", "0"))   # per-vertex strength scaled by local thickness (thin limbs smoothed less)
 T0_EDGES = float(os.environ.get("T0_EDGES", "4.0"))  # thickness (in mean-edge units) at which full strength is reached
@@ -193,7 +194,12 @@ if AUTO:
         if best is None or tiou > best[0] + 1e-5: best = (tiou, it, Vt)
     if best[1] < AUTO_MIN:
         m = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(V), o3d.utility.Vector3iVector(F.astype(np.int32)))
-        best = (best[0], AUTO_MIN, np.asarray(m.filter_smooth_taubin(number_of_iterations=AUTO_MIN, lambda_filter=LAM, mu=MU).vertices))
+        _Vm = np.asarray(m.filter_smooth_taubin(number_of_iterations=AUTO_MIN, lambda_filter=LAM, mu=MU).vertices); _tm = train_iou(_Vm, F)
+        # 2026-10-05: the floor exists because the training views reward jitter on a GOOD mesh. On a coarse, tangled mesh
+        # every Taubin iteration destroys the fit (t10k_118298: 0.935 -> 0.879 -> 0.816 -> ... 0.553 at x8) and the forced
+        # floor turned a mediocre result into a wrecked one (9 of 31 Thingi10K runs). Apply the floor only if it is free.
+        if _tm >= best[0] - TAUBIN_TOL: best = (_tm, AUTO_MIN, _Vm)
+        else: print(f"[auto] floor x{AUTO_MIN} would cost {best[0] - _tm:.4f} training IoU (> {TAUBIN_TOL}): keeping x{best[1]}", flush=True)
     ITERS = best[1]; V2 = best[2]
     print(f"[auto] chosen ITERS={ITERS} (train IoU {best[0]:.4f})", flush=True)
 elif int(os.environ.get("ROUGHADAPT", "0")):
@@ -248,6 +254,12 @@ else:
     m = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(V), o3d.utility.Vector3iVector(F.astype(np.int32)))
     m = m.filter_smooth_taubin(number_of_iterations=ITERS, lambda_filter=LAM, mu=MU)
     V2 = np.asarray(m.vertices)
+    # same guard for a fixed iteration count: back off until the smoothing no longer costs training IoU
+    _t0 = train_iou(V, F); _it = ITERS
+    while _it > 0 and train_iou(V2, F) < _t0 - TAUBIN_TOL:
+        _it = {5: 3, 3: 2, 2: 1, 1: 0}.get(_it, _it - 1)
+        V2 = V.copy() if _it == 0 else np.asarray(o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(V), o3d.utility.Vector3iVector(F.astype(np.int32))).filter_smooth_taubin(number_of_iterations=_it, lambda_filter=LAM, mu=MU).vertices)
+    if _it != ITERS: print(f"[taubin] x{ITERS} would cost more than {TAUBIN_TOL} training IoU: backed off to x{_it}", flush=True); ITERS = _it
 report(f"taubin x{ITERS}", V2, F)
 if os.environ.get("SNAPSHOT_DIR"):
     import viz_snap
