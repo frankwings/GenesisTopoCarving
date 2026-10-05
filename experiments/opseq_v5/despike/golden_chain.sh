@@ -87,7 +87,7 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
   cp $O/cow_${S}_${T}_p5.npz despike/results_genus/${T}_raw.npz; cp $O/cow_${S}_${T}_auto.npz despike/results_genus/${T}_auto.npz
   G=$(genus_of despike/results_genus/${T}_auto.npz); echo "[RESULT] $S $P: final genus $G (GT $(_gt_of $S)) $([ "$G" = "$(_gt_of $S)" ] && echo OK || echo MISMATCH)"
   RK=$(SHAPE=$S python3 despike/linking_audit.py --rank despike/results_genus/${T}_auto.npz 2>/dev/null | tail -1); echo "[STRICT] $S $P: tunnels realised by the surface $(echo $RK | cut -d' ' -f1)/$(echo $RK | cut -d' ' -f3) (genus $(echo $RK | cut -d' ' -f2), tiny loops $(echo $RK | cut -d' ' -f4))"
-  echo "[HEALTH] $S $P: $(python3 despike/mesh_health.py despike/results_genus/${T}_auto.npz $O/cow_${T}_early.npz 2>/dev/null | tail -1)"
+  echo "[HEALTH] $S $P: $(SHAPE=$S python3 despike/mesh_health.py despike/results_genus/${T}_auto.npz $O/cow_${T}_early.npz 2>/dev/null | tail -1)"
   guard; if [ -n "${REAL_DATA:-}" ]; then
     REAL_DATA=$REAL_DATA SHAPE=$S python3 despike/exam_real.py raw=despike/results_genus/${T}_raw.npz taubin=despike/results_genus/${T}_auto.npz 2>&1 | grep -E "exam_real|Error" | sed "s/^/[$S exam] /"
   else
