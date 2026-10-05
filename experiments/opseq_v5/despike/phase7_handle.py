@@ -760,6 +760,24 @@ for k in range(_hull_max):
         if DETECT == "membrane":
             import membrane_locate
             _hull_cands = membrane_locate.find_tunnel_by_membranes(V, Fa, HF, search_handles(), G_TARGET, r_dedup=R_DEDUP, log=lambda m: print(m, flush=True))
+            if int(os.environ.get("AIR_DRILL", "0")):
+                # 2026-10-05: drill ON THE TUNNEL AXIS. Each hull tunnel has an air loop through its middle; where the mesh
+                # still seals the tunnel the loop enters and leaves mesh material. A handle between the entry and exit faces
+                # opens exactly that tunnel (Thingi10K: runs that ended short had tunnels still sealed by a membrane the
+                # hull-air detector could not see - t10k_43399 3 loops sealed, t10k_472194 1). Thinnest passage first.
+                try:
+                    import linking_audit as _la
+                    if "_ad_air" not in globals(): globals()["_ad_air"] = _la.air_loops(SHAPE, log=lambda m: None)
+                    _cp = sorted(_la.loop_crossing_pairs(V, Fa, globals()["_ad_air"]), key=lambda c: c[5]) if globals()["_ad_air"] else []
+                    _vs = [set(map(int, f)) for f in Fa]
+                    for _li, _fi, _fj, _pi, _pj, _len in _cp:
+                        _ci, _cj = V[Fa[_fi]].mean(0), V[Fa[_fj]].mean(0); _mid = 0.5 * (_ci + _cj)
+                        if _vs[_fi] & _vs[_fj] or near_rejected(_ci, _cj): continue
+                        if any(isinstance(h, dict) and h.get("mid") is not None and np.linalg.norm(np.asarray(h["mid"], float) - _mid) < R_DEDUP for h in prev_handles): continue
+                        print(f"[p7] air-loop drill: tunnel loop {_li} is sealed over {_len:.3f}; entry/exit faces {_fi},{_fj} ({len(_cp)} sealed passage(s) in total)", flush=True)
+                        _hull_cands = [(_fi, _fj, _ci, _cj, ["airloop", [round(float(x), 3) for x in _mid]])] + list(_hull_cands or [])
+                        break
+                except Exception as _e: print(f"[p7] air-loop drill unavailable ({_e})", flush=True)
         else:
             _hull_cands = find_tunnel_by_hull(V, Fa, HF, search_handles(), G_TARGET)
         if _hull_cands:

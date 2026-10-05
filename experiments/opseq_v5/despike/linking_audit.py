@@ -158,6 +158,36 @@ def loop_crossings(V, F, AIR, step=0.02):
         counts.append(int(hit.sum())); pts.append((a[ok] + dn * np.where(np.isfinite(t), t, 0)[:, None])[hit])
     return counts, (np.vstack(pts) if any(len(x) for x in pts) else np.zeros((0, 3)))
 
+def loop_crossing_pairs(V, F, AIR, step=0.02):
+    """For every air loop that the mesh still seals: the (entry, exit) pairs of its passage through mesh material,
+    as (loop index, entry face, exit face, entry point, exit point, length inside). The loop runs along the middle of
+    the tunnel, so a handle between the entry and exit faces drills the tunnel ON ITS AXIS - the place is given by the
+    hull, not guessed from local geometry, and it also works for a membrane that lies inside the hull (which the
+    hull-air membrane detector cannot see)."""
+    import open3d as o3d
+    rs = o3d.t.geometry.RaycastingScene(); rs.add_triangles(o3d.t.geometry.TriangleMesh(o3d.core.Tensor(np.asarray(V, np.float32)), o3d.core.Tensor(np.asarray(F, np.uint32))))
+    out = []
+    for li, A in enumerate(AIR):
+        P = np.vstack([A, A[:1]]); a = []
+        for u, v in zip(P[:-1], P[1:]):
+            n = max(1, int(np.linalg.norm(v - u) / step)); a += [u + (v - u) * t / n for t in range(n)]
+        a = np.array(a); b = np.roll(a, -1, 0); d = b - a; L = np.linalg.norm(d, axis=1); ok = L > 1e-9; a, d, L = a[ok], d[ok], L[ok]; dn = d / L[:, None]
+        ans = rs.cast_rays(o3d.core.Tensor(np.hstack([a, dn]).astype(np.float32))); t = ans["t_hit"].numpy(); fid = ans["primitive_ids"].numpy().astype(np.int64)
+        hit = np.where(t <= L)[0]
+        if len(hit) < 2: continue
+        pts = a[hit] + dn[hit] * t[hit][:, None]; fc = fid[hit]
+        # a crossing is an ENTRY if the loop is inside the mesh just after it
+        after = pts + dn[hit] * min(0.25 * step, 0.004)
+        enters = rs.compute_occupancy(o3d.core.Tensor(after.astype(np.float32))).numpy() > 0.5
+        arc = np.concatenate([[0.0], np.cumsum(L)])                                  # loop parameter of each sample
+        par = arc[hit] + t[hit]; total = float(L.sum())
+        for k in range(len(hit)):
+            k2 = (k + 1) % len(hit)
+            if enters[k] and not enters[k2] and fc[k] != fc[k2]:
+                inside_len = float((par[k2] - par[k]) % total)
+                out.append((li, int(fc[k]), int(fc[k2]), pts[k], pts[k2], inside_len))
+    return out
+
 def genus(V, F):
     E = len(np.unique(np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), 1), axis=0))
     return (2 - (len(V) - E + len(F))) // 2
