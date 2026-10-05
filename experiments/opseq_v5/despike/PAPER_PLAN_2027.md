@@ -44,3 +44,61 @@ ICCV deadline, B must describe the metric briefly and cite A as concurrent / ano
   tubes are invisible to silhouettes). With the hull oracle: genus 10, mesh collapsed (VolIoU 0.02). With the genus
   GIVEN (22) and STRICT off: genus 11, collapsed again (VolIoU 0.02) -> knowing the count does not help, the
   locations come from the hull. Nicolet on it: 0.15. This is the method's boundary (thin woven tubes).
+
+
+## ICCV 2027 go / no-go plan (recorded 2026-10-05, Boss request)
+
+Idea under evaluation: a 360-degree turntable video of a real object (mug; dinosaur as a genus-0 control) with
+accurate camera poses + the current Topo-Carving chain. Assessment: worth doing, NOT sufficient on its own.
+
+### Where we stand (measured)
+- Synthetic, our 6 shapes: all strict-correct, VolIoU 0.987-0.998, 4-9 min.
+- Thingi10K (343 clean closed high-genus models): silhouette oracle usable on 28 %; on 31 usable ones 18
+  strict-correct with usable geometry (58 %).
+- vs DMesh++ (ICCV 2025), 37 models, one scoring script: closed single-component manifold 0/37 (theirs) vs 37/37
+  (ours); genus right 0 vs 27; Chamfer median 0.0087 (theirs) vs 0.0122 (ours) - ours better on our 6 shapes (6:0,
+  ~5 %), theirs better on Thingi10K (22:9), more robust (thin plates, high genus) and ~40 % faster; their GPU peak
+  12-29 GB.
+- Real data: zero successful reconstructions so far (earlier captures dino..dino4, mug, mug2 all had problems).
+- So the only axis we win is topology (closed, manifold, verified genus). A paper must be built on that axis.
+
+### Minimum bar for submitting (missing any one -> do not submit)
+| item | needed | have (2026-10-05) |
+|---|---|---|
+| real objects | 8-10, at least 6 with genus >= 1, genus covering 0 / 1 / 2 / 3+ (a genus-0 negative control included) | 0 |
+| synthetic objects | 30-50, chosen by a published rule (Thingi10K "usable" pool has 96) | 37 run, 18 of 31 usable ones succeed |
+| baselines | >= 4: DMesh++, one Gaussian (2DGS or SuGaR), one implicit (NeuS2), one mesh-based (Nicolet / Palfinger) | DMesh++, DMesh, Nicolet, Palfinger; no Gaussian, no implicit |
+| success inside the declared scope | >= 85 % strict-correct | 58 % |
+| topology comparison | every baseline's outputs through the audit: closed / manifold / genus right | DMesh++ only (0/37) |
+
+### Strengtheners (any one makes the case clearly better)
+- A downstream task that needs a closed manifold (physics simulation, 3D printing, parameterisation), run on our
+  output and shown to fail on the baselines' outputs. Best value for effort.
+- Ablations (oracle / strict repair / audit removed) - most of the data exists.
+- Run time and GPU memory comparison (our memory footprint is far smaller).
+
+### The two hard items
+1. Success 58 % -> 85 %: failures are thin plates tangling at the coarse stage and missing tunnels at high genus.
+   Either fix them or narrow the declared scope (e.g. exclude thin walls with a hull-thickness pre-check).
+   Narrowing is realistic but weakens the paper.
+2. Real objects 0 -> 8: depends entirely on getting the first mug right.
+
+### Capture requirements for the turntable video (from real/CAPTURE_SPEC.md and past failures)
+- Two elevations, one full turn each (level, and 30-40 degrees above); a single ring leaves top and bottom
+  unconstrained and the hull diverges.
+- Empty mug, handle hole showing background in most frames; plain background; object centred in every frame.
+- Turntable (static camera, rotating object) gives poses from the rotation angle - far more accurate than hand-held
+  SLAM; the rotation axis must be calibrated.
+
+### Decision point
+The first real mug is the gate.
+- Mug works within ~2-3 weeks -> roll out the list above and aim at ICCV 2027 (deadline ~2027-03-08, not announced).
+- Mug stuck for more than a month, or only 2-3 objects ever work -> no ICCV submission; put the real results into
+  the SGP paper as a section, or target 3DV / WACV.
+- The SGP audit paper proceeds either way; the DMesh++ 0/37 result is its first external data point.
+
+### Immediate next steps
+1. Try the existing real/mug, real/mug2 captures with the current chain (strict repair + health check) to see
+   where it breaks.
+2. New turntable capture of the mug per the requirements above (Boss).
+3. In parallel: audit figures for the SGP paper from the 37 DMesh++ outputs.
