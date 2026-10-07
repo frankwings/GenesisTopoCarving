@@ -215,9 +215,16 @@ def candidate_vector(V, F, fi, fj, AIR):
 
 def audit(V, F, AIR):
     loops, Ls, R, err = surface_matrix(V, F, AIR)
+    # 2026-10-07: an air loop that pierces the surface (a sealed tunnel on a thin wall: the loop crosses the skin twice) is
+    # not in the complement, its linking numbers are meaningless and inflated the rank above the genus (113858: rank 9 on a
+    # genus-8 surface, so the late drill could never show "+1" and was rejected). Such tunnels count as NOT realised.
+    cross, _ = loop_crossings(V, F, AIR) if len(AIR) else ([], None)
+    if R.size:
+        for k, c in enumerate(cross):
+            if c: R[:, k] = 0
     rank = int(np.linalg.matrix_rank(R)) if R.size else 0
     return dict(genus=int(genus(V, F)), rank=rank, per_tunnel=[int(np.any(R[:, k] != 0)) for k in range(len(AIR))] if R.size else [0] * len(AIR),
-                tiny_loops=int(sum(x < 0.3 for x in Ls)), int_err=err)
+                tiny_loops=int(sum(x < 0.3 for x in Ls)), int_err=err, pierced=[int(c) for c in cross])
 
 if __name__ == "__main__":
     shape = os.environ.get("SHAPE", "fertility")
