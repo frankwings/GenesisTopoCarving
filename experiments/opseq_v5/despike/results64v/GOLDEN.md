@@ -240,3 +240,24 @@ skipped because a fake handle had filled the count), worst case 25 min -> 8.7 mi
 Known limits: fake handles are repaired, not prevented (origin in Stage 3 not understood yet); the cut-and-cap runs
 on triangle arrays, not as a DLFL operator; a handle that is redundant but not a 3-cycle cannot be removed (seen
 once, s5B; the final audit reports it). Analysis: `LESSONS_2026-09-29_site_check.md` 7e-7h.
+
+## candidate v6.6 (2026-10-06) - thickness-aware coarse subdivision (`THICK_SUBDIV=1`, not yet default)
+
+Thin walls: the coarse mesh is refined where the visual hull is thinner than the edge, before the sides can interpenetrate
+(LESSONS 7k). Memory/time fixes that came with it: sparse tube_mask, local-submesh despike surgery (Stage 4 81 min -> minutes),
+chain aborts on a missing stage output.
+
+| shape | genus (GT) | strict | SI | fit | VolIoU | CD (v6.5) | V | wall |
+|---|---|---|---|---|---|---|---|---|
+| armadillo | 0 (0) | - | 0.0 % | 0.9969 | 0.9949 | 0.00620 (0.00620) | 49.3k | 6.0 min |
+| kitten | 1 (1) | 1/1 | 0.0 % | 0.9987 | 0.9980 | 0.00665 (0.00665) | 54.2k | 5.7 min |
+| rocker-arm | 1 (1) | 1/1 | 0.0 % | 0.9979 | 0.9925 | 0.00584 (0.00615) | 55.9k | 8.0 min |
+| threeholes | 3 (3) | 3/3 | 0.0 % | 0.9978 | 0.9933 | 0.00686 (0.00706) | 55.0k | 11.7 min |
+| fertility | 4 (4) | 4/4 | 0.0 % | 0.9975 | 0.9911 | 0.00635 (0.00644) | 51.7k | 8.9 min |
+| botijo | pending | | | | | | | |
+| t10k_81291 (plate) | 5 (5) | 5/5 | 0.1 % | 0.977 | 0.785 | 0.00689 (wreck) | 46.8k | 34 min |
+| t10k_236142 | 2 (4) | 2/4 | 4.4 % | 0.981 | 0.716 | 0.0177 (wreck) | 51.8k | 22 min |
+| t10k_1417963 | 10 (11) | 10/11 | 2.7 % | 0.983 | 0.937 | 0.00885 (wreck) | 30.7k | 113 min (before the surgery fix) |
+| t10k_113858 | 8 (9) | 9/9 (!) | 0.2 % | 0.976 | 0.970 | 0.00710 (wreck) | 15.9k | 6.6 min (Stage 4 onwards) |
+
+(!) the audit reports 9 tunnels realised on a genus-8 surface - an audit inconsistency to investigate.

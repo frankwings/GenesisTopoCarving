@@ -308,6 +308,57 @@ Tests: 109 library tests incl. add_handle -> remove_handle and insert_edge -> de
 Regression dl (fertility x8 + four other shapes x1): 12/12 strict-correct, micro-handles removed by the operator
 in 5 of 8 fertility chains, CD 0.0063-0.0064, VolIoU 0.990-0.992.
 
+## 7k. 2026-10-05/06: thin walls - thickness-aware coarse subdivision (THICK_SUBDIV), and three bugs it exposed
+
+**Symptom.** On the Thingi10K thin-wall models (wall 0.03-0.15 in the [-1,1] scene) the chain returned the right
+genus on a wreck: 42-77 % self-intersecting faces, silhouette fit 0.55-0.90, Chamfer 2-7x DMesh++. Root cause
+measured, not guessed: the coarse mesh edge at cc3 is 0.14-0.27, i.e. 2-8x the wall; the two sides of a plate pass
+through each other during DR (SI already 17-34 % at cc3, 56-72 % at the end of Stage 1) and no later stage untangles
+them. Thick shapes have the same SI at cc3 (fertility 18 %) but Stage 4/5 resolve it (0 %), thin ones never do.
+
+**Fix (option 1 of four, Boss's choice: smallest change).** `thick_subdiv.py`: local wall thickness from the
+64-view visual hull alone (inside EDT, then multi-scale max filters = diameter of the largest inscribed ball
+covering the voxel, Hildebrand-Ruegsegger; vertices outside the hull take the nearest inside voxel). After the cc3
+DR, faces with mean edge > THICK_RATIO (1.0) x local thickness are DLFL-subdivided (subdivide_edge + stellate,
+1-ring expanded), up to THICK_ROUNDS=2 rounds within a THICK_MAX_V=30000 budget (thinnest faces first), then 800
+settle steps. Stage 4 then splits only faces still above THICK_EQ_EDGE=0.09 instead of a global cc round.
+A plate (81291) refines everywhere (962 -> 33k V), a mixed part (236142) only where thin (962 -> 15k V); the
+subdivision alone takes SI 23 % -> 7 % before any DR.
+
+**Result (same metric as the DMesh++ table, `compare_dmesh2.metrics`).**
+
+| model | wall p5/p50 | before: SI / fit / CD | after: SI / fit / CD | DMesh++ CD | genus |
+|---|---|---|---|---|---|
+| 81291 (plate) | 0.026/0.035 | 42 % / <0.90 / 0.0160 | 0.1 % / 0.977 / **0.0069** | 0.0095 | 5/5 |
+| 236142 | 0.010/0.123 | 9 % / wreck / 0.0380 | 4.4 % / 0.981 / **0.0177** | 0.0357 | 2/4 |
+| 1417963 | 0.145/0.193 | 29 % / wreck / 0.0504 | 2.7 % / 0.983 / 0.0089 | **0.0071** | 10/11 |
+| 113858 | 0.076/0.103 | 24 % / wreck / 0.0288 | 0.2 % / 0.976 / 0.0071 | **0.0062** | 8/9 |
+
+All four pass the health check; geometry went from 2-7x worse than DMesh++ to 2 wins / 2 losses within 15 %,
+with closed manifolds (DMesh++: 0/37 closed). Topology is now the open item: 2/4 are 1-2 handles short
+(236142 drilled the same corner twice in Stage 3 - strict repair correctly removed the duplicate - and the four
+true tunnels along z=1.5 were rejected as INVALID because the candidate face pairs sit inside material).
+Reference shapes with THICK_SUBDIV=1 (armadillo, kitten, rocker-arm, threeholes, fertility): genus 5/5, CD equal
+or better (rocker-arm 0.00613 -> 0.00584, VolIoU 0.9870 -> 0.9925; threeholes 0.00707 -> 0.00686), wall time
++10 % to +130 % (threeholes 5.0 -> 11.7 min: 28.8k V at cc3 flow through every stage).
+
+**Three bugs the larger meshes exposed (all fixed, all verified identical on the old sizes).**
+1. `cow_v13.tube_mask`/`build_adj` built dense V x V masks (bool + a float matmul for the 2-ring): 88 GB at 138k
+   V, 31 GB at 46k. Now sparse CSR 2-ring + chunked cdist above EXCL_DENSE_MAX=12000 V; bit-identical mask.
+2. `surgery_lib._amputate_comp` rebuilt the DLFL mesh from the FULL arrays for every (component x grow) attempt:
+   1.5 s each at 35k V, Stage 4 = 81 min. Now the operator sequence runs on the submesh of all faces incident to
+   comp + 1-ring (every fan the operators query is complete there; boundary loops capped with a dummy apex so the
+   builder accepts it, pinch vertices handled) and is spliced back; validity checked on the arrays. 0.017 s, identical
+   results on 12/12 random components. `collapse_edge_tri` also repoints half-edges via the vertex fan now.
+3. `golden_chain.sh` fell through: a crashed stage left the chain copying stale files and it still printed
+   `[RESULT] ... OK` (seen three times, once with a plausible-looking 0.9725 fit). Every stage now checks its output
+   and aborts with `[RESULT] ... ABORTED` - never trust a RESULT line without the stage lines above it.
+Also: `mesh_health` "any shrink = FAILED" became SHRINK_MAX=50 % (thick-refined meshes legitimately lose 10-15 %).
+
+**Operational.** Foreign Windows-side GPU load (480 W / 21-28 GB, not ours) and two WSL reboots plus one service
+restart killed four launches; the hani service has a private /tmp, so scripts and lists now live in `~/run/`, and
+the chain scripts carry a power guard (wait while GPU > 200 W).
+
 ## 8. Open problems
 
 1. Recalibrate on stage-3 mid-round meshes: geodesic threshold (a true contact at 20) and the handling

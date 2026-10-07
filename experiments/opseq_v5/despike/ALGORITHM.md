@@ -57,6 +57,7 @@ flowchart TD
 |---|---|---|---|
 | 0 oracle check | `oracle_check.py` | hull genus for closing radii 1..6 must show a plateau of three equal values equal to g\*; otherwise the run is refused | — |
 | 1 init | `run_64v.py` (STOP_AFTER=cc3) | icosphere, three Catmull-Clark levels, DR between levels | `make_icosahedron`, `catmull_clark` |
+| 1t thickness refine (`THICK_SUBDIV=1`) | `thick_subdiv.py` inside `run_64v.py` | local wall thickness from the visual hull (inside EDT + multi-scale max filter); faces coarser than the wall are subdivided before the sides can interpenetrate, then settled | `subdivide_edge`, `stellate` |
 | 2 clean | `phase4_inloop.py` | 400 DR steps with flips and link-condition-guarded collapses | `flip`, `collapse_edge_tri` |
 | 3 genus discovery | `phase7_multi.sh` → `phase7_handle.py` | one handle per round: detect a candidate, site check, `add_handle`, 400 DR steps, gate; reverted if rejected; stops at genus = g\* or when no evidence is left | `insert_edge` / `delete_edge` (merge a membrane into one rim polygon), `subdivide_edge`, **`add_handle`** |
 | 4 re-carve | `run_64v.py` (RESUME) | subdivide + DR on the new topology | `catmull_clark` |
@@ -172,7 +173,12 @@ experimental, default-off `AIR_GUARD`, `BATCH_OPEN`, `NEAR_PAIRS`, `GATE_DHO_ONL
 
 ## 9. Known problems and limits
 
-1. **Thin-walled shapes (heptoroid).** The visual hull fills every concavity no silhouette can see: 1.9x the
+1. **Thin walls (2026-10-06: largely solved for walls the hull resolves).** The coarse mesh edge (0.14-0.27 at cc3) was 2-8x the
+   wall; the sides interpenetrated and the result was a wreck (SI 42-77 %). `THICK_SUBDIV=1` refines where the hull is thinner
+   than the edge: the four Thingi10K thin-wall models now pass the health check with Chamfer 0.0069-0.0177 (DMesh++ 0.0062-0.0357,
+   2 wins / 2 losses within 15 %); reference shapes unchanged or better, wall time +10-130 %. Remaining: 1-2 handles short on
+   2 of the 4 (LESSONS 7k). Walls the silhouettes cannot carve at all (heptoroid) remain out of range, see next item.
+1b. **Thin-walled shapes the hull cannot carve (heptoroid).** The visual hull fills every concavity no silhouette can see: 1.9x the
    object's volume, genus 40 / 31 / 44 over closing radii (true: 22). Voxel resolution does not help (256³ → 512³:
    no change); unbiased silhouette edges and 1-vote carving reduce the excess to 1.26x but the genus still does not
    settle. Giving the true genus does not help either — the *locations* come from the hull. Needs a different
