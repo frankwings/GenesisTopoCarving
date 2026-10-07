@@ -1055,9 +1055,18 @@ def collapse_edge_tri(mesh: DLFLMesh, edge: Edge):
 
     # midpoint; repoint v1's outgoing half-edges to v0
     v0.x, v0.y, v0.z = (v0.x + v1.x) / 2, (v0.y + v1.y) / 2, (v0.z + v1.z) / 2
-    for h in list(mesh.halfedges.values()):
-        if h.origin is v1:
-            h.origin = v0
+    # repoint via the vertex fan (O(degree)); the full half-edge scan (O(|H|)) made despike surgery on
+    # 40k-vertex meshes take 80 minutes (2026-10-06). Fall back to the scan only if the fan is open.
+    fan, cur, closed = [], v1.he, False
+    while cur is not None:
+        fan.append(cur)
+        nxt = cur.twin.next if cur.twin is not None else None
+        if nxt is v1.he: closed = True; break
+        cur = nxt
+    if not closed:
+        fan = [h for h in mesh.halfedges.values() if h.origin is v1]
+    for h in fan:
+        h.origin = v0
 
     # merge duplicate edges: (v1,a) folds onto (v0,a); (b,v1) onto (b,v0)
     e_keep0, e_del0 = p0.edge, n0.edge

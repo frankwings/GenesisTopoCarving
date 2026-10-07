@@ -5,7 +5,7 @@ A run can end with the "right" genus on a mesh that is not a reconstruction at a
 pass through each other at the coarse stage, the refinement cannot untangle them, and before the 2026-10-04 fix the
 mesh was coarsened down to 8-40 vertices (Thingi10K batch: 6 of 31 runs) while the chain still printed a genus.
 This check makes such runs explicit. FAILED if any of:
-  - the final mesh has fewer vertices than the mesh that entered refinement (refinement should grow it);
+  - the final mesh lost more than SHRINK_MAX (default 50 %) of the vertices that entered refinement;
   - more than SI_MAX (default 10 %) of the faces self-intersect;
   - fewer than V_MIN (default 2000) vertices;
   - with SHAPE set: mean silhouette IoU with the input views below FIT_MIN (default 0.90; measured: wrecked results 0.57-0.82, all others >= 0.954) - a healthy-looking mesh that
@@ -50,7 +50,9 @@ if __name__ == "__main__":
     v0 = len(np.load(sys.argv[2])["verts"]) if len(sys.argv) > 2 and os.path.exists(sys.argv[2]) else None
     si = si_fraction(V, F); why = []
     if len(V) < int(os.environ.get("V_MIN", "2000")): why.append(f"only {len(V)} vertices")
-    if v0 is not None and len(V) < v0: why.append(f"refinement shrank the mesh ({v0} -> {len(V)} vertices)")
+    # 2026-10-06: thickness-refined coarse meshes (THICK_SUBDIV) legitimately lose 10-15 % of their vertices in the
+    # refinement (over-fine thin regions get collapsed); the wrecks this rule targets lost > 95 % (thousands -> 8-40)
+    if v0 is not None and len(V) < (1.0 - float(os.environ.get("SHRINK_MAX", "0.5"))) * v0: why.append(f"refinement shrank the mesh ({v0} -> {len(V)} vertices)")
     if si == si and si > float(os.environ.get("SI_MAX", "0.10")): why.append(f"{100 * si:.0f}% of the faces self-intersect")
     fit = None
     if os.environ.get("SHAPE") and os.environ.get("HEALTH_FIT", "1") == "1":

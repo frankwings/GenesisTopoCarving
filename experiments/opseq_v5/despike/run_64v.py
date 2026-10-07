@@ -358,7 +358,14 @@ def heldout_exam(ctx, v, t):
 HULL_INIT = int(os.environ.get("HULL_INIT", "0"))          # 1: project the init icosphere onto the 64-view voting hull before Stage 1 DR
 HULL_INIT_ITERS = int(os.environ.get("HULL_INIT_ITERS", "12"))
 HULL_INIT_SMOOTH = float(os.environ.get("HULL_INIT_SMOOTH", "0.5"))   # uniform-Laplacian blend per iteration (keeps triangles from folding on concave hulls)
-S1_STEPS = int(os.environ.get("S1_STEPS", "800"))            # DR steps per Stage-1 level (cc2, cc3)
+S1_STEPS = int(os.environ.get("S1_STEPS", "800"))
+THICK_SUBDIV = int(os.environ.get("THICK_SUBDIV", "0"))   # 1: thickness-aware DLFL subdivision after cc3 (thin walls; thick_subdiv.py)
+THICK_RATIO = float(os.environ.get("THICK_RATIO", "1.0"))  # subdivide while mean edge > ratio x local hull thickness
+THICK_ROUNDS = int(os.environ.get("THICK_ROUNDS", "2"))
+THICK_MAX_V = int(os.environ.get("THICK_MAX_V", "30000"))
+THICK_STEPS = int(os.environ.get("THICK_STEPS", str(S1_STEPS)))
+THICK_EQ_MINV = int(os.environ.get("THICK_EQ_MINV", "6000"))   # Stage 4: resumed mesh larger than this -> equalizing partial split instead of global cc4
+THICK_EQ_EDGE = float(os.environ.get("THICK_EQ_EDGE", "0.09"))   # absolute cc4-equivalent edge (cc3 median 0.14-0.27 -> cc4 0.07-0.13 in the [-1,1] scene)            # DR steps per Stage-1 level (cc2, cc3)
 
 
 def hull_init_project(ctx, mvps, gv, gf, v, t, HF=None):
@@ -457,6 +464,26 @@ def main():
         v, t, polys = _c2f(v, t, polys); _set_faces(t)
         v, _ = optimize_phase64(ctx, v, t, gt, gtd, gtdiff, mvps, views, S1_STEPS, "cc3",
                                 settle=True, use_tube=True)
+        if THICK_SUBDIV:
+            # thin-wall plan option 1 (2026-10-05): refine where the visual hull is thinner than the mesh edge
+            # BEFORE the sides can interpenetrate, then settle. Uses only the training silhouettes (hull).
+            import thick_subdiv
+            if _real_scene: _HF = _real_scene.hull(ctx, extra_pts=np.asarray(v))
+            else:
+                from hull_field import build_vote_hull
+                _HF = build_vote_hull(ctx, mvps, normalize_to_range(gv), _gf, np.asarray(v), DEVICE, nres=256, hires=512, vote=2)
+            _hull = np.asarray(_HF.hull.cpu() if hasattr(_HF.hull, "cpu") else _HF.hull).astype(bool)
+            _L = thick_subdiv.local_thickness_grid(_hull, np.asarray(_HF.sp, float))
+            _tfn = lambda Vn: thick_subdiv.thickness_at(_L, _HF.lo, _HF.hi, Vn)
+            v, t, _hist = thick_subdiv.thickness_subdivide(np.asarray(v, np.float64), np.asarray(t, np.int64), _tfn,
+                                                           ratio=THICK_RATIO, rounds=THICK_ROUNDS, max_v=THICK_MAX_V,
+                                                           log=lambda m: print(m, flush=True))
+            del _HF, _L; torch.cuda.empty_cache()
+            if _hist:
+                t = np.asarray(t, np.int32); polys = None; _set_faces(t)
+                viz_snap.snap(ctx, mvps, v, t, "Stage 1 [thickness-aware subdivision]", hold=30)
+                v, _ = optimize_phase64(ctx, v, t, gt, gtd, gtdiff, mvps, views, THICK_STEPS, "thick",
+                                        settle=True, use_tube=True)
     _heldout_exam = _real_scene.heldout_exam if _real_scene else heldout_exam
     if os.environ.get("STOP_AFTER") == "cc3":
         # early-hole experiment: hand the cc3 mesh (1.9k faces) to the handle stage before any further subdivision
@@ -465,7 +492,14 @@ def main():
         ho, hair, mb = _heldout_exam(ctx, v, t)
         print(f"[run_64v] STOP_AFTER=cc3: saved cow_{TAG}.npz V={len(v)} F={len(t)} ho16={ho:.4f} hair={hair}", flush=True)
         return
-    v, t, polys = _c2f(v, t, polys); _set_faces(t)
+    if THICK_SUBDIV and polys is None and len(v) > THICK_EQ_MINV:
+        # the coarse mesh was thickness-refined (thin regions already finer than cc4): split only the faces that are
+        # still coarse (above half the 90th-percentile edge = the untouched part), instead of a global cc round
+        import thick_subdiv
+        v, t, _ns = thick_subdiv.equalize_subdivide(v, t, THICK_EQ_EDGE, log=lambda m: print(m, flush=True))
+        t = np.asarray(t, np.int32); polys = None; _set_faces(t)
+    else:
+        v, t, polys = _c2f(v, t, polys); _set_faces(t)
     v, iou_train = optimize_phase64(ctx, v, t, gt, gtd, gtdiff, mvps, views, 800,
                                     "cc4", settle=True, use_fold=True, use_tube=True)
     print(f"[train] iou={iou_train:.4f} V={len(v)} ({time.time()-t0:.0f}s)", flush=True)

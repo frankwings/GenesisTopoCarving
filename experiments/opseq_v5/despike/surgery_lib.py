@@ -1,6 +1,6 @@
 """Iterative TopMod amputation surgery: tube-collapse + snap + spike-snap,
 repeated until detectors are clean. Judged only by 6-view training data."""
-import sys
+import sys, os
 sys.path.insert(0, "/home/kingy/Projects/Genesis/GenesisTopmod")
 import numpy as np, torch, collections
 from topmod.primitives import _build_mesh
@@ -156,11 +156,84 @@ def surgery(V, F, iou_fn=None, iou_budget=8e-4, global_cap=3e-3,
     return V, F
 
 
+SURGERY_LOCAL = int(os.environ.get("SURGERY_LOCAL", "1"))
+
+
 def _amputate_comp(V, F, comp):
-    """Topological amputation of one flagged component. Returns (V2,F2,ok)."""
+    """Topological amputation of one flagged component. Returns (V2,F2,ok).
+
+    2026-10-06: the amputation only ever touches the component and its 1-ring, but the DLFL mesh was rebuilt from
+    the FULL arrays for every (component x grow) attempt - 1.4 s each at 35k verts, 80 min per Stage 4 on the
+    thickness-refined thin-wall meshes. SURGERY_LOCAL=1 runs the identical operator sequence on the submesh of all
+    faces incident to comp + 1-ring (fans of every vertex the operators query are complete there) and splices the
+    result back; validity is checked on the final arrays (watertight, consistent orientation)."""
+    if not SURGERY_LOCAL:
+        return _amputate_comp_full(V, F, comp)
+    V = np.asarray(V, float); F = np.asarray(F, np.int64); comp = [int(i) for i in comp]
+    inc = np.zeros(len(V), bool); inc[comp] = True
+    fmask = inc[F].any(1)                         # faces incident to comp
+    ring = np.zeros(len(V), bool); ring[np.unique(F[fmask])] = True   # comp + 1-ring
+    fsub = np.flatnonzero(ring[F].any(1))         # faces incident to comp + 1-ring (complete fans for both)
+    vsub = np.unique(F[fsub]); loc = -np.ones(len(V), np.int64); loc[vsub] = np.arange(len(vsub))
+    Fl = loc[F[fsub]]; pos = [tuple(x) for x in V[vsub]]; faces = [list(map(int, f)) for f in Fl]
+    # the DLFL builder needs a closed mesh: cap every boundary loop of the submesh with a dummy apex (the caps only
+    # touch 2-ring vertices, which no operator queries, and are dropped after the surgery)
+    d = np.concatenate([Fl[:, [0, 1]], Fl[:, [1, 2]], Fl[:, [2, 0]]], 0)
+    dset = set(map(tuple, d.tolist())); out = collections.defaultdict(list)
+    for a, b in dset:
+        if (b, a) not in dset: out[b].append(a)                  # boundary half-edge a->b: cap needs b->a
+    unused = {b: list(a_) for b, a_ in out.items()}             # pinch vertices have 2+ outgoing boundary edges
+    while any(unused.values()):
+        start = next(b for b, a_ in unused.items() if a_); loop, cur = [], start
+        while unused.get(cur):
+            loop.append(cur); cur = unused[cur].pop()
+            if cur == start: break
+        if cur != start or len(loop) < 3: return V, F, False      # not a closed boundary cycle: let the full path handle it
+        apex = len(pos); pos.append(tuple(V[vsub[loop]].mean(0)))
+        for k in range(len(loop)): faces.append([loop[k], loop[(k + 1) % len(loop)], apex])
+    mesh = _build_mesh(pos, faces)
+    vlist = list(mesh.vertices.values()); vid2g = {id(v_): int(g) for v_, g in zip(vlist[:len(vsub)], vsub)}
+    dummies = set(id(v_) for v_ in vlist[len(vsub):])
+    condemned = set(id(vlist[loc[i]]) for i in comp)
+    _amputate_on_mesh(mesh, condemned)
+    # splice: survivors are original vertex objects (collapse never creates vertices)
+    V2 = V.copy(); keep = np.ones(len(V), bool); keep[vsub] = False
+    for v_ in mesh.vertices.values():
+        if id(v_) in dummies: continue
+        g = vid2g[id(v_)]; keep[g] = True; V2[g] = (v_.x, v_.y, v_.z)
+    newf = [[vid2g[id(v_)] for v_ in f.vertices()] for f in mesh.faces.values()
+            if not any(id(v_) in dummies for v_ in f.vertices())]
+    if any(len(f) != 3 for f in newf): return V, F, False
+    _km = np.ones(len(F), bool); _km[fsub] = False
+    F2 = np.concatenate([F[_km], np.asarray(newf, np.int64).reshape(-1, 3)], 0)
+    if not keep[np.unique(F2)].all(): return V, F, False
+    remap = -np.ones(len(V), np.int64); remap[keep] = np.arange(int(keep.sum())); F2 = remap[F2]
+    ok = _arrays_valid(F2, int(keep.sum()))
+    return V2[keep], F2, ok
+
+
+def _arrays_valid(F2, nv):
+    """closed, orientable, every vertex used: each undirected edge in exactly 2 faces with opposite direction."""
+    if len(F2) == 0 or (F2[:, 0] == F2[:, 1]).any() or (F2[:, 1] == F2[:, 2]).any() or (F2[:, 2] == F2[:, 0]).any(): return False
+    d = np.concatenate([F2[:, [0, 1]], F2[:, [1, 2]], F2[:, [2, 0]]], 0)
+    dk = d[:, 0] * nv + d[:, 1]
+    if len(np.unique(dk)) != len(dk): return False                # a directed edge twice = inconsistent orientation / duplicate face
+    u = np.sort(d, 1); _, cnt = np.unique(u[:, 0] * nv + u[:, 1], return_counts=True)
+    return bool((cnt == 2).all()) and len(np.unique(F2)) == nv
+
+
+def _amputate_comp_full(V, F, comp):
     mesh = _build_mesh([tuple(x) for x in V], [list(map(int, f)) for f in F])
     vlist = list(mesh.vertices.values())
     condemned = set(id(vlist[i]) for i in comp)
+    _amputate_on_mesh(mesh, condemned)
+    ok, _ = check_all(mesh)
+    pos, tris = to_triangle_arrays(mesh)
+    return np.array(pos), np.array(tris), ok
+
+
+def _amputate_on_mesh(mesh, condemned):
+    """The operator sequence (phase 1 collapse within comp, phase 2 collapse into healthy neighbours, smoothing)."""
     skipped = set(); progress = True
     while progress:
         progress = False
@@ -201,6 +274,3 @@ def _amputate_comp(V, F, comp):
             v_.x = sum(u.x for u in healthy) / len(healthy)
             v_.y = sum(u.y for u in healthy) / len(healthy)
             v_.z = sum(u.z for u in healthy) / len(healthy)
-    ok, _ = check_all(mesh)
-    pos, tris = to_triangle_arrays(mesh)
-    return np.array(pos), np.array(tris), ok

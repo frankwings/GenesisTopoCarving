@@ -85,6 +85,16 @@ def build_adj(tris_np, nv, want_excl=True):
         0, src, torch.ones_like(src, dtype=torch.float32)).clamp(min=1).unsqueeze(-1)
     if not want_excl:   # V x V dense masks OOM at >100k verts (phase 6); callers that don't use tube_mask skip it
         return src, dst, deg, None
+    if nv > EXCL_DENSE_MAX:
+        # 2026-10-06: thickness-refined coarse meshes reach 35-140k verts; the dense V x V masks (bool + the float
+        # matmul that builds the 2-hop ring) and the dense cdist in tube_mask need 8-110 GB there. Sparse 2-ring (CSR)
+        # + chunked cdist give the identical mask at O(chunk x V) memory.
+        import scipy.sparse as _sp
+        s_np, d_np = src.cpu().numpy(), dst.cpu().numpy()
+        A = _sp.csr_matrix((np.ones(len(s_np), np.float32), (s_np, d_np)), shape=(nv, nv))
+        E = ((A + A @ A + _sp.identity(nv, dtype=np.float32, format="csr")) > 0).tocsr(); E.sort_indices()
+        excl = (torch.from_numpy(E.indptr.astype(np.int64)).to(DEVICE), torch.from_numpy(E.indices.astype(np.int64)).to(DEVICE))
+        return src, dst, deg, excl
     # 2-hop exclusion mask (V x V bool): self + 1-hop + 2-hop
     A = torch.zeros(nv, nv, dtype=torch.bool, device=DEVICE)
     A[src, dst] = True
@@ -118,8 +128,23 @@ def sliver_pen(v, faces_l, mean_e):
     return p
 
 
+EXCL_DENSE_MAX = int(os.environ.get("EXCL_DENSE_MAX", "12000"))   # above this V: sparse 2-ring + chunked cdist (same result)
+TUBE_CHUNK = int(os.environ.get("TUBE_CHUNK", "2048"))
+
+
 @torch.no_grad()
 def tube_mask(v, excl, mean_edge):
+    if isinstance(excl, tuple):                      # sparse (indptr, indices) 2-ring exclusion, chunked rows
+        indptr, indices = excl; n = v.shape[0]; out = torch.empty(n, dtype=torch.bool, device=v.device)
+        for r0 in range(0, n, TUBE_CHUNK):
+            r1 = min(n, r0 + TUBE_CHUNK)
+            D = torch.cdist(v[r0:r1], v)
+            p0, p1 = int(indptr[r0]), int(indptr[r1])
+            cnt = indptr[r0 + 1:r1 + 1] - indptr[r0:r1]
+            rows = torch.repeat_interleave(torch.arange(r1 - r0, device=v.device), cnt)
+            D[rows, indices[p0:p1]] = 1e9
+            out[r0:r1] = D.min(1).values < TUBE_THR * mean_edge
+        return out
     D = torch.cdist(v, v)
     D[excl] = 1e9
     return D.min(1).values < TUBE_THR * mean_edge
