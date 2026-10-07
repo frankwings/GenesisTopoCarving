@@ -22,6 +22,10 @@ E=len(np.unique(np.sort(np.concatenate([F[:,[0,1]],F[:,[1,2]],F[:,[2,0]]]),1),ax
 # re-audit after the final refine, LESSONS 7e-7h). It needs the GT-bbox hull grid, so it is off for REAL_DATA scenes
 # unless STRICT=1 is given explicitly. STRICT=0 reproduces golden v6.4.
 STRICT=${STRICT:-$([ -n "${REAL_DATA:-}" ] && echo 0 || echo 1)}
+# golden v7.0 (2026-10-07): thickness-aware coarse subdivision is the default (LESSONS 7k). The cc3 mesh is refined where the
+# 64-view visual hull is thinner than the mesh edge, before the two sides of a thin wall can interpenetrate; Stage 4 then
+# equalizes instead of a global cc round. THICK_SUBDIV=0 reproduces golden v6.5.
+export THICK_SUBDIV=${THICK_SUBDIV:-1}
 need() { [ -f "$1" ] && return 0; echo "[RESULT] $S $P: ABORTED - stage $2 produced no output ($(basename $1)); nothing downstream is valid"; echo "[$S] wall $(( $(date +%s) - T0 ))s"; return 1; }   # 2026-10-06: a crashed stage used to fall through on stale files and still print [RESULT]
 chain() { S=$1; T0=$(date +%s); T=${S}_$P
   if [ "$SNAPSHOT_EVERY" != "0" ]; then FD=$PWD/out_liou/frames_${P}_$S; export SNAPSHOT_DIR=$FD; mkdir -p $FD; else unset SNAPSHOT_DIR; fi

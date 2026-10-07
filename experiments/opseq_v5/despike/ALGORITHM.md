@@ -57,7 +57,7 @@ flowchart TD
 |---|---|---|---|
 | 0 oracle check | `oracle_check.py` | hull genus for closing radii 1..6 must show a plateau of three equal values equal to g\*; otherwise the run is refused | — |
 | 1 init | `run_64v.py` (STOP_AFTER=cc3) | icosphere, three Catmull-Clark levels, DR between levels | `make_icosahedron`, `catmull_clark` |
-| 1t thickness refine (`THICK_SUBDIV=1`) | `thick_subdiv.py` inside `run_64v.py` | local wall thickness from the visual hull (inside EDT + multi-scale max filter); faces coarser than the wall are subdivided before the sides can interpenetrate, then settled | `subdivide_edge`, `stellate` |
+| 1t thickness refine (v7.0, default) | `thick_subdiv.py` inside `run_64v.py` | local wall thickness from the visual hull (inside EDT + multi-scale max filter); faces coarser than the wall are subdivided before the sides can interpenetrate, then settled | `subdivide_edge`, `stellate` |
 | 2 clean | `phase4_inloop.py` | 400 DR steps with flips and link-condition-guarded collapses | `flip`, `collapse_edge_tri` |
 | 3 genus discovery | `phase7_multi.sh` → `phase7_handle.py` | one handle per round: detect a candidate, site check, `add_handle`, 400 DR steps, gate; reverted if rejected; stops at genus = g\* or when no evidence is left | `insert_edge` / `delete_edge` (merge a membrane into one rim polygon), `subdivide_edge`, **`add_handle`** |
 | 4 re-carve | `run_64v.py` (RESUME) | subdivide + DR on the new topology | `catmull_clark` |

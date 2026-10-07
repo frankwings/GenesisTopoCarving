@@ -241,7 +241,7 @@ Known limits: fake handles are repaired, not prevented (origin in Stage 3 not un
 on triangle arrays, not as a DLFL operator; a handle that is redundant but not a 3-cycle cannot be removed (seen
 once, s5B; the final audit reports it). Analysis: `LESSONS_2026-09-29_site_check.md` 7e-7h.
 
-## candidate v6.6 (2026-10-06) - thickness-aware coarse subdivision (`THICK_SUBDIV=1`, not yet default)
+## golden v7.0 (2026-10-07) - thickness-aware coarse subdivision (tag `golden-v7.0`, `THICK_SUBDIV=1` default)
 
 Thin walls: the coarse mesh is refined where the visual hull is thinner than the edge, before the sides can interpenetrate
 (LESSONS 7k). Memory/time fixes that came with it: sparse tube_mask, local-submesh despike surgery (Stage 4 81 min -> minutes),
@@ -261,3 +261,7 @@ chain aborts on a missing stage output.
 | t10k_113858 | 8 (9) | 9/9 (!) | 0.2 % | 0.976 | 0.970 | 0.00710 (wreck) | 15.9k | 6.6 min (Stage 4 onwards) |
 
 (!) the audit reports 9 tunnels realised on a genus-8 surface - an audit inconsistency to investigate.
+
+Figure: `results_genus/fig_thick_subdiv_explain.png` (why edge <= wall thickness; 81291 cross-sections before/after).
+Still open after v7.0: thin-wall topology (236142 2/4, 1417963 10/11, 113858 8/9 - Stage 3 opens duplicate or misplaced
+handles on thin parts), walls the silhouettes cannot carve (heptoroid; oracle refuses), wall time +10-130 %.
