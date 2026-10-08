@@ -359,6 +359,33 @@ Also: `mesh_health` "any shrink = FAILED" became SHRINK_MAX=50 % (thick-refined 
 restart killed four launches; the hani service has a private /tmp, so scripts and lists now live in `~/run/`, and
 the chain scripts carry a power guard (wait while GPU > 200 W).
 
+## 7l. 2026-10-07: thin-wall topology - two audit/gate bugs, one geometric limit
+
+After v7.0 three of the four Thingi10K thin-wall models were 1-2 handles short. Diagnosis per model (full late-pass logs,
+stage-by-stage audit of every saved mesh):
+
+1. **113858 (8/9): the audit counted a pierced loop.** Air loop 4 crosses our thin skin twice (the sealed-tunnel
+   signature). A loop that pierces the surface is not in its complement, so its linking numbers are meaningless; they
+   inflated the rank to 9 on a genus-8 surface (impossible: rank <= g for loops outside). The late drill found the right
+   site (MEMBRANE) but the RANK gate needs "+1" and the pre-drill rank was already 9 -> rejected. Fix: zero the column
+   of every pierced loop in `audit` (reported as `pierced`). Rerun from 5b: 9/9, CD 0.00592 (< DMesh++ 0.00620).
+2. **1417963 (10/11, then 9/11 after fix 1): the gate demanded exactly +1.** After Stage 5, five air loops were
+   pierced (five sealed thin-wall tunnels). One drill through a thin wall unseals two of them at once (rank 6 -> 8,
+   7 -> 9; round 3 also took ho16 0.914 -> 0.989 and hair 44778 -> 52) and was REJECTED for not being +1. One handle
+   adds two generators, so +2 is legitimate. Fix: accept any strictly positive gain. Rerun: 11/11, CD 0.00836.
+3. **236142 (2/4): geometry, not detection.** The four corner tunnels are the slots between a post standing 0.07 off
+   the plate and the plate. Our reconstruction merged post and plate (54 % of the GT volume in the corner), the air loop
+   passes outside our material (0 crossings, 0 linking, no membrane to drill, no near pair to join), and the hull is
+   2.6x the GT volume there (concave corner no silhouette sees), so hull-solid-but-mesh-air is no signal either. Needs
+   depth-driven carving in concave corners; recorded as a limit.
+
+Strict regression with both fixes (fertility x3, threeholes, kitten, rocker-arm, botijo): 7/7 strict-correct,
+no extra handle accepted, CD unchanged (fertility 0.00630-0.00639, threeholes 0.00686, kitten 0.00668,
+rocker-arm 0.00584, botijo 0.00580).
+
+Lesson: a gate rule written as "exactly N" encodes an assumption about the operator (one handle = one tunnel) that
+thin walls break; the audit must first establish that the probe (air loop) is actually in the complement.
+
 ## 8. Open problems
 
 1. Recalibrate on stage-3 mid-round meshes: geodesic threshold (a true contact at 20) and the handling

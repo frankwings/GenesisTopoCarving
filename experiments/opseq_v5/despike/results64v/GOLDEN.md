@@ -257,10 +257,11 @@ chain aborts on a missing stage output.
 | botijo | 5 (5) | 5/5 | 0.0 % | 0.9982 | 0.9978 | 0.00578 eval_cd_iou; compare_dmesh2 metric 0.00579 (v6.5 0.00579, DMesh++ 0.00617) | 48.2k | 38 min (wall shared with a foreign GPU load) |
 | t10k_81291 (plate) | 5 (5) | 5/5 | 0.1 % | 0.977 | 0.785 | 0.00689 (wreck) | 46.8k | 34 min |
 | t10k_236142 | 2 (4) | 2/4 | 4.4 % | 0.981 | 0.716 | 0.0177 (wreck) | 51.8k | 22 min |
-| t10k_1417963 | 10 (11) | 10/11 | 2.7 % | 0.983 | 0.937 | 0.00885 (wreck) | 30.7k | 113 min (before the surgery fix) |
-| t10k_113858 | 8 (9) | 9/9 (!) | 0.2 % | 0.976 | 0.970 | 0.00710 (wreck) | 15.9k | 6.6 min (Stage 4 onwards) |
+| t10k_1417963 | **11 (11)** | 11/11 | 0.8 % | 0.987 | 0.940 | 0.00836 (wreck) | 30.5k | 6.7 min from 5b (v7.1) |
+| t10k_113858 | **9 (9)** | 9/9 | 0.0 % | 0.988 | 0.976 | 0.00592 (wreck) | 14.5k | 2.6 min from 5b (v7.1) |
 
-(!) the audit reports 9 tunnels realised on a genus-8 surface - an audit inconsistency to investigate.
+v7.1 (2026-10-07, tag `golden-v7.1`): audit ignores air loops that pierce the surface; RANK gate accepts any positive gain (LESSONS 7l).
+Strict regression 7/7 unchanged (fertility x3 0.00630-0.00639, threeholes 0.00686, kitten 0.00668, rocker-arm 0.00584, botijo 0.00580).
 
 Figure: `results_genus/fig_thick_subdiv_explain.png` (why edge <= wall thickness; 81291 cross-sections before/after).
 Still open after v7.0: thin-wall topology (236142 2/4, 1417963 10/11, 113858 8/9 - Stage 3 opens duplicate or misplaced
