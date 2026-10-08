@@ -211,7 +211,9 @@ the two where the handles press against the body are joined on the refined mesh.
 | rockerarm — discovered genus **1** | armadillo — discovered genus **0** (no false tunnels) |
 
 1080p MP4 versions of all five runs:
-[`results_genus/gifs/*_evolution_hd.mp4`](experiments/opseq_v5/despike/results_genus/gifs/)
+[`results_genus/gifs/*_evolution_hd.mp4`](experiments/opseq_v5/despike/results_genus/gifs/).
+**All recorded series** (the 64-camera mosaics of the v3/v5 chain before genus discovery, the v6.3 hero-view cuts, the final cut):
+[`results_genus/gifs/GALLERY.md`](experiments/opseq_v5/despike/results_genus/gifs/GALLERY.md).
 
 ## Where it does not work
 
