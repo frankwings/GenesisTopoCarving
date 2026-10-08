@@ -326,6 +326,7 @@ experiments on the cow/bunny, 6-view era) and are kept in the private repository
 
 ## Documentation
 
+- [`STATUS_2026-10-08_vs_competitors.md`](experiments/opseq_v5/despike/STATUS_2026-10-08_vs_competitors.md) — **where we stand**: capability matrix, measured head-to-head (Nicolet, Palfinger, DMesh, DMesh++, Gu et al.), Thingi10K coverage, gaps and what closes them
 - [`ALGORITHM.md`](experiments/opseq_v5/despike/ALGORITHM.md) — **start here**: the whole algorithm stage by
   stage, the audit, the repair, architecture (files and switches), results, known problems
 - [`LESSONS_2026-09-29_site_check.md`](experiments/opseq_v5/despike/LESSONS_2026-09-29_site_check.md) — why each

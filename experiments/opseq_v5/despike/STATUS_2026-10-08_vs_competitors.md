@@ -1,0 +1,103 @@
+# Topo-Carving — where we stand vs. the competition (2026-10-08, golden v7.1)
+
+All numbers below are ours, measured on one RTX 5090 with one scoring script (`eval_cd_iou.py` / `compare_dmesh2.py`),
+unless marked *(paper)*. Competitor code was run by us where it exists (Nicolet, Palfinger, DMesh, DMesh++); Gu et al.
+released no code and define neither metric, so they appear only qualitatively.
+
+## 1. Capability matrix
+
+| | Nicolet 2021 (Large Steps) | Palfinger 2022 (Continuous Remeshing) | DMesh (NeurIPS 24) / DMesh++ (ICCV 25) | Gao…Gu, ICASSP 26 (PH prior) | Neural implicit + MC (NeuS/2DGS/…) | **Topo-Carving v7.1** |
+|---|---|---|---|---|---|---|
+| topology source | fixed (sphere) | fixed (input mesh) | emerges (point existence) | **given** template with GT genus | emerges from the level set | **discovered** from the carved hull |
+| can go genus 0 → g | no | no | yes, uncontrolled | no | yes, uncontrolled | **yes, one verified `add_handle` at a time** |
+| output manifold / closed | yes (fixed connectivity) | yes | **no** (soup; 0/37 closed) | yes | no before cleanup | **yes by construction (DLFL), 37/37** |
+| genus can drift during optimisation | yes (collapse) | yes | yes | patched by PH loss | yes | **impossible** (vertex motion cannot change connectivity) |
+| per-handle audit (which tunnel does it realise) | — | — | — | — | — | **linking-number audit, GT-free** |
+| knows when it does not apply | — | — | — | — | — | oracle check refuses unstable hulls |
+| thin walls | ok | ok | **good** | ? | ok at high res | fixed in v7 where the silhouettes see the wall; concave corners still fail |
+| needs GT genus / template | no | yes (template) | no | **yes** | no | no |
+| code public | yes | yes | yes | **no** | yes | private (ours) |
+
+## 2. Head-to-head, measured
+
+### 2a. Our six reference shapes (64 views, same supervision)
+
+Volume IoU / held-out silhouette IoU / Chamfer, golden v7.1 (reference shapes unchanged vs v6.5 except rocker-arm, threeholes better):
+
+| shape (genus) | Nicolet | Palfinger | DMesh | DMesh++ CD | **ours** |
+|---|---|---|---|---|---|
+| armadillo (0) | 0.899 / 0.959 / – | 0.994 / 0.9965 / 0.0068 | 0.963 / 0.989 / – | 0.0065 | **0.995 / 0.9972 / 0.0062** |
+| kitten (1) | 0.968 / 0.977 / 0.0110 | 0.997 / 0.9991 / 0.0068 | 0.990 / 0.994 / 0.0074 | 0.0068 | **0.998 / 0.9994 / 0.0067** |
+| fertility (4) | 0.826 / 0.896 / 0.0270 (genus 0) | 0.960 / 0.940 / – (fails) | 0.979 / 0.989 / 0.0071 (soup) | 0.0068 | **0.991 / 0.9974 / 0.0064**, genus 4 |
+| rocker-arm (1) | 0.925 / 0.958 / 0.0156 | 0.938 / 0.967 / – | 0.980 / 0.993 / 0.0064 | 0.0064 | **0.993 / 0.9985 / 0.0058** |
+| threeholes (3) | – | – | – | 0.0089 | **0.993 / 0.998 / 0.0069** |
+| botijo (5) | 0.92 (our run of their code; paper: 0.46) | – | – | 0.0062 | **0.998 / – / 0.0058** |
+| wall time | 5–15 min | 4–15 min (3.6 armadillo) | 10–20 min | 4–16 min | **5–12 min** incl. discovery (v6.5: 4–9) |
+
+Genus: Nicolet 0 always; Palfinger fixed externally; DMesh/DMesh++ soup (no genus defined); **ours 6/6 shapes, 9/9 strict runs**.
+
+### 2b. DMesh++ on 37 models (31 Thingi10K + our 6), official code, same views, one scoring script
+
+| | DMesh++ | ours v6.5 | ours v7.1 (partial) |
+|---|---|---|---|
+| closed single-component manifold | **0/37** | 37/37 | 37/37 |
+| genus right (count) | n/a (not closed) | 27/37 (21/31 Thingi10K) | 6/6 of the batch so far + 3/4 thin walls |
+| Chamfer median, Thingi10K 31 | **0.0095** | 0.0135 | expected ≈ 0.009 (thin-wall wrecks fixed) |
+| Chamfer wins, Thingi10K | **22 : 9** | | thin walls now 3:1 for us on the 4 re-run |
+| Chamfer wins, our 6 shapes | 0 : 6 | **6 : 0** | 6 : 0 |
+| GPU peak | 12–29 GB | 3–9 GB | 3–9 GB |
+| wall per model | 3.4–9.7 min | 4–9 min | **12–19 min** (2–3× slower, v7 cost) |
+
+### 2c. Thin walls (the v6.5 failure class), v7.1
+
+| model | wall p5/p50 | v6.5 | v7.1 | DMesh++ CD |
+|---|---|---|---|---|
+| 81291 (plate) | 0.026/0.035 | wreck, SI 42 %, CD 0.0160 | **5/5, SI 0.1 %, CD 0.0069** | 0.0095 |
+| 113858 | 0.076/0.103 | wreck, CD 0.0288 | **9/9, CD 0.0059** | 0.0062 |
+| 1417963 | 0.145/0.193 | wreck, CD 0.0504 | **11/11, CD 0.0084** | **0.0071** |
+| 236142 | 0.010/0.123 | wreck, CD 0.0380 | 2/4, CD 0.0177 | 0.0357 |
+| 118298 | 0.125/0.266 | wreck | **2/2, SI 0.5 %** | – |
+
+## 3. Thingi10K coverage (the honest ceiling)
+
+| | count |
+|---|---|
+| clean closed high-genus pool | 343 |
+| silhouette oracle usable (hull genus stable and = GT) | **96 (28 %)** |
+| oracle stable but wrong (131 undercount) | 142 |
+| oracle unstable (refused) | 105 |
+| run so far ("usable" subset) | 31 |
+| strict-correct + healthy geometry, v6.5 | 17–18 / 31 (58 %) |
+| strict-correct, v7.1 | 6/6 run + 3/4 thin walls re-run; full batch pending (expected 24–26 / 31) |
+
+The 72 % the oracle cannot serve are shapes whose tunnels the silhouettes do not resolve (thin curved walls, deep
+concavities, tunnels thinner than a voxel). No competitor *discovers* topology there either — but DMesh++ still returns
+usable (non-closed) geometry on them, we return a refusal.
+
+## 4. Where we are BEHIND, and what closes the gap
+
+| gap | size | cause | fix (v8 candidates) |
+|---|---|---|---|
+| **Chamfer on Thingi10K** | DMesh++ 22:9, median 0.0095 vs 0.0135 (v6.5) | thin-wall wrecks (8 of the 13 losses) + concave-corner geometry | v7 closes most; rerun pending. Concave corners need depth-driven carving |
+| **Speed** | 2–3× slower than v6.5 and than DMesh++ since v7 | thickness-refined coarse mesh (2–30× vertices) flows through every stage; 400-step DR per rejected handle | `THICK_RATIO` tuning, skip re-subdivision of already-fine regions, learned candidate ranking to cut rejected rounds |
+| **Coverage** | oracle usable on 28 % of high-genus Thingi10K | visual hull = silhouettes only; concavities invisible | depth-carved space for air loops and site checks; learned proposals for hull-invisible tunnels (verified, or flagged prior-only) |
+| **Thin-wall topology** | 236142 2/4 | post 0.07 off a plate in a concave corner: DR merges them, hull 2.6× fat | same as above (depth carving) |
+| **Real captures** | 0 successful reconstructions (dino…dino4, mug, mug2) | capture/pose/mask problems so far, STRICT audit off for real data (hull grid tied to GT bbox) | first real mug = the ICCV go/no-go gate (PAPER_PLAN_2027) |
+| **Topology-given baselines** | no head-to-head with Gu et al. | no code, no metric definitions, Nicolet baseline not reproducible | compare on the discovery axis only; borrow their PH anti-collapse loss as a handle guard |
+| **Hidden tunnels** (long curved pipe inside a solid) | not detectable from images by anyone | observation null space | detect "two deep mouths" and report *unverifiable*; prior-only handles counted separately |
+
+## 5. Where we are AHEAD (the claims the paper rests on)
+
+1. Only method that **discovers** genus from images (0 → 5 on botijo, 0 → 11 on 1417963) with every handle executed as a
+   manifold-preserving DLFL operator — genus drift is impossible by construction.
+2. Only method with a **GT-free surface-topology audit** (linking numbers vs. hull air loops) that says *which* tunnel each
+   handle realises, removes the ones that realise none, and re-audits after refinement.
+3. **Closed manifold output 37/37** against DMesh++ 0/37; better Chamfer on every reference shape (6:0) and on 3 of 4
+   thin walls after v7.
+4. **Knows its limits**: oracle check refuses heptoroid-class shapes; health check flags wrecks; both GT-free.
+5. Fewer resources: 3–9 GB GPU vs 12–29 GB.
+
+## 6. Pointers
+`results64v/GOLDEN.md` (all versions), `results_genus/dmesh2/compare_37.jsonl` (per-model DMesh++ table),
+`RESULTS.md` §baselines (Nicolet/Palfinger/DMesh runs), `RELATED_WORK.md` (Gu et al.), `PAPER_PLAN_2027.md`,
+`LESSONS_2026-09-29_site_check.md` 7k–7l (thin walls).
