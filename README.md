@@ -8,7 +8,7 @@ oracle tells the optimizer *how many* tunnels the shape has and *where* they are
 change is executed as a TopMod **DLFL `add_handle`** — so the mesh is a valid orientable 2-manifold,
 watertight, after **every** step, and the genus can never drift silently.
 
-**Status summary (2026-10-08, golden v7.1): [`STATUS.md`](STATUS.md)** — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
+**Status summary (2026-10-08, golden v7.1): [`STATUS_2026-10-08.md`](STATUS_2026-10-08.md)** — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
 
 ## The whole algorithm in one strip
 
