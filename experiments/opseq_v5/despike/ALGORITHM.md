@@ -171,6 +171,15 @@ experimental, default-off `AIR_GUARD`, `BATCH_OPEN`, `NEAR_PAIRS`, `GATE_DHO_ONL
 | botijo | 5 | 3/3 | 3/3 | 0.996–0.998 | 7.7–9.6 min |
 | heptoroid | 22 | refused by the oracle check (forced: collapses) | — | — | — |
 
+### 8b. golden v7.1 (2026-10-07): thin walls
+
+`THICK_SUBDIV=1` (default) refines the coarse mesh where the hull is thinner than the mesh edge (`thick_subdiv.py`,
+stage 1t). Reference shapes: genus and strict audit 9/9 runs, CD equal or better, wall time 2-3x. Thingi10K thin walls
+(v6.5 wrecks with 42-77 % self-intersecting faces): 81291 5/5 CD 0.0069, 113858 9/9 CD 0.0059, 1417963 11/11 CD 0.0084,
+236142 2/4 CD 0.0177 (DMesh++: 0.0095 / 0.0062 / 0.0071 / 0.0357; 0/37 closed). The audit now treats a hull air loop that
+pierces the surface as unrealised, and the late-pass rank gate accepts any positive gain (one drill through a thin wall
+can unseal two tunnels). Details and per-stage numbers: `results64v/GOLDEN.md` v7.0/v7.1, LESSONS 7k-7l.
+
 ## 9. Known problems and limits
 
 1. **Thin walls (2026-10-06: largely solved for walls the hull resolves).** The coarse mesh edge (0.14-0.27 at cc3) was 2-8x the

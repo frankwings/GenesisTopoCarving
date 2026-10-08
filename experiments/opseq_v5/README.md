@@ -20,6 +20,49 @@ watertight, after **every** step, and the genus can never drift silently.
 the stage and the genus — watch <code>add_handle</code> open each tunnel.</i>
 </p>
 
+## What's new in v7 (2026-10-07): thin walls
+
+<p align="center">
+<img src="despike/results_genus/fig_thick_subdiv_explain.png" width="980" alt="why edge <= wall thickness"/>
+<br/><i>Top: a mesh cannot represent two surfaces closer together than its own edge length — on a thin plate the
+coarse icosphere's front and back pass through each other during DR. Bottom: Thingi10K 81291, mid cross-section,
+ground truth / golden v6.5 (two faces zig-zagging through each other, 42 % self-intersecting faces) / v7 (two clean
+walls, Chamfer 0.0160 → 0.0069; DMesh++ 0.0095).</i>
+</p>
+
+> **Status (golden v7.1, tag `golden-v7.1`).** v6.5 returned the right genus on thin-walled objects but on a
+> *wreck*: at the coarse stage the mesh edge (0.14–0.27) is 2–8× the wall (0.03–0.15), the two sides of every plate
+> interpenetrate and nothing downstream recovers (42–77 % self-intersecting faces, Chamfer 2–7× DMesh++). v7 fixes the
+> cause instead of the symptom.
+
+- **Thickness-aware coarse subdivision** ([`thick_subdiv.py`](despike/thick_subdiv.py), `THICK_SUBDIV=1`, default).
+  Local wall thickness is read off the 64-view visual hull alone (inside distance transform → multi-scale max filter =
+  diameter of the largest inscribed ball, no GT). After the cc3 DR, every face whose mean edge exceeds the local
+  thickness is DLFL-subdivided (`subdivide_edge` + `stellate`, 1-ring expanded; ≤ 2 rounds, 30k-vertex budget, thinnest
+  faces first) **before** the sides can cross, then settled. A plate refines everywhere (962 → 33k vertices), a mixed
+  part only where it is thin (962 → 15k). Stage 4 then equalises the remaining coarse faces instead of a global
+  Catmull-Clark round.
+- **Result on the four Thingi10K thin-wall wrecks** (same Chamfer as the DMesh++ table):
+  81291 **5/5**, CD 0.0160 → **0.0069** (DMesh++ 0.0095); 113858 **9/9**, 0.0288 → **0.0059** (0.0062);
+  1417963 **11/11**, 0.0504 → 0.0084 (0.0071); 236142 2/4, 0.0380 → **0.0177** (0.0357). All four pass the health check
+  (self-intersections 0.1–4.4 %, silhouette fit 0.976–0.988); DMesh++ outputs are never closed (0/37).
+- **Reference shapes unchanged or better** (armadillo, kitten, rocker-arm, threeholes, fertility ×3, botijo: genus
+  and strict audit 9/9 runs; rocker-arm volume IoU 0.987 → 0.993, threeholes CD 0.00707 → 0.00686). Cost: 2–3× wall
+  time (the refined coarse mesh flows through every stage).
+- **Two audit/gate bugs the thin walls exposed** (v7.1): a hull air loop that *pierces* the surface (a sealed
+  thin-wall tunnel) is not in the complement — its linking numbers inflated the rank above the genus and made the
+  correct late drill impossible (113858); and the late-pass gate demanded "exactly +1 tunnel realised" while one drill
+  through a thin wall legitimately unseals two (1417963: a drill that took the held-out IoU from 0.914 to 0.989 was
+  rejected). Pierced loops now count as unrealised; the gate accepts any positive gain. Strict regression 7/7
+  unchanged.
+- **Three engineering fixes the larger meshes forced**: sparse 2-ring + chunked `cdist` in the tube mask (dense
+  V×V needed 88 GB at 138k vertices); despike surgery on a local submesh instead of rebuilding the whole DLFL mesh per
+  attempt (1.5 s → 0.017 s, identical results; Stage 4 was 81 min); the chain now aborts when a stage produces no
+  output instead of falling through on stale files.
+- **Known limit that remains** (236142): a post standing 0.07 off a plate in a concave corner — the hull is 2.6× the
+  object there, our DR merges post and plate, the air loop passes outside the material and no detector fires. Needs
+  depth-driven carving; see [`LESSONS` 7l](despike/LESSONS_2026-09-29_site_check.md).
+
 ## Highlights (golden v6.5)
 
 > **Status (2026-10-03, golden v6.5): strict surface topology.** Genus is only a count. v6.5 checks that the
@@ -134,6 +177,20 @@ Full description — every stage, rule, parameter, file and known problem:
 | botijo | 5 | 3/3 | 3/3 | 0.996–0.998 | 7.7–9.6 min |
 | heptoroid | 22 | refused by the oracle check | — | — | — |
 
+Thin-walled Thingi10K models (v7.1; Chamfer with [`compare_dmesh2.py`](despike/compare_dmesh2.py), DMesh++ run with
+the official code on the same 64 views):
+
+| model | wall (p5 / p50) | genus | tunnels realised | self-int. | fit | CD v6.5 → v7.1 | CD DMesh++ |
+|---|---|---|---|---|---|---|---|
+| t10k_81291 (plate) | 0.026 / 0.035 | 5/5 | 5/5 | 0.1 % | 0.977 | 0.0160 → **0.0069** | 0.0095 |
+| t10k_113858 | 0.076 / 0.103 | 9/9 | 9/9 | 0.0 % | 0.988 | 0.0288 → **0.0059** | 0.0062 |
+| t10k_1417963 | 0.145 / 0.193 | 11/11 | 11/11 | 0.8 % | 0.987 | 0.0504 → 0.0084 | **0.0071** |
+| t10k_236142 | 0.010 / 0.123 | 2/4 | 2/4 | 4.4 % | 0.981 | 0.0380 → **0.0177** | 0.0357 |
+
+On the full 31-model Thingi10K set (v6.5 numbers; the v7.1 batch is running) DMesh++ wins Chamfer 22:9 with a
+median of 0.0095 vs 0.0135 — and returns 0/31 closed meshes against our 31/31. On our six reference shapes we win
+6:0 (0.0058–0.0071 vs 0.0062–0.0089).
+
 <p align="center">
 <img src="despike/results_genus/gifs/botijo_evolution_hd.gif" width="680" alt="botijo reconstruction: genus discovered 0 -> 5"/>
 <br/><i>Botijo from a sphere to genus 5: three tunnels drilled at the coarse stage, two joins on the refined mesh.</i>
@@ -168,7 +225,16 @@ view, so the hull fills it: on heptoroid the hull has 1.9x the object's volume a
 (40 / 31 / 44 for three closing radii; the truth is 22). More voxels do not help (256³ → 512³: no change); sharper
 silhouette edges and 1-vote carving bring the excess down to 1.26x, not to a usable oracle; giving the true genus
 does not help either, because the locations come from the hull. The oracle check detects this from the silhouettes
-alone and refuses the shape. Other open problems (fake handles are repaired rather than prevented, joins happen
+alone and refuses the shape. <p align="center">
+<img src="despike/results_genus/fig_236142_corner_limit.png" width="760" alt="236142 corner: GT vs ours"/>
+<br/><i>The remaining thin-wall failure (Thingi10K 236142, seen along the hole axis, colour = depth): a post standing
+0.07 off the plate forms the tunnel (red: hull air loop). Our DR merges post and plate; the loop passes outside the
+material, so neither the membrane drill nor the join detector has anything to act on.</i>
+</p>
+
+Thin walls the silhouettes *do* see are handled since v7 (thickness-aware subdivision); what remains is the concave
+corner where the hull is several times the object and the geometry itself comes out wrong (236142 above).
+Other open problems (fake handles are repaired rather than prevented, joins happen
 late, self-intersections, real captures) are listed in
 [`ALGORITHM.md`](despike/ALGORITHM.md#9-known-problems-and-limits).
 
@@ -209,7 +275,7 @@ cd experiments/opseq_v5   # this directory
 SHAPES="fertility threeholes kitten rockerarm armadillo" TAGP=repro \
 USE_JEV=1 GATE_BACKEND=count HULL_COMPLETE=1 bash despike/golden_chain.sh
 # prints [RESULT] <shape>: final genus G (GT g) OK per shape
-# and  [STRICT] <shape>: tunnels realised by the surface r/g*   (STRICT=0 reproduces v6.4)
+# and  [STRICT] <shape>: tunnels realised by the surface r/g*   (STRICT=0 reproduces v6.4, THICK_SUBDIV=0 reproduces v6.5)
 # add SNAPSHOT_EVERY=2 SNAPSHOT_HERO=1 to record the evolution GIFs
 # external models (botijo): SHAPE_DIR=$PWD/shapes_ext SHAPES=botijo S3_ROUNDS=10 bash despike/golden_chain.sh
 ```
@@ -230,7 +296,8 @@ Requires: PyTorch (cu-enabled), nvdiffrast, open3d, scipy/scikit-image. Tested o
 - [`ALGORITHM.md`](despike/ALGORITHM.md) — **start here**: the whole algorithm stage by
   stage, the audit, the repair, architecture (files and switches), results, known problems
 - [`LESSONS_2026-09-29_site_check.md`](despike/LESSONS_2026-09-29_site_check.md) — why each
-  rule exists: the bridge bug, winding numbers, the audit, fake handles, negative results (sections 7c–7j)
+  rule exists: the bridge bug, winding numbers, the audit, fake handles, negative results (7c–7j), thin walls and
+  the two audit/gate bugs they exposed (7k–7l)
 - [`PAPER_NOTES.md`](despike/PAPER_NOTES.md) — paper skeleton: contributions,
   ablation table, negative results, limitations
 - [`results64v/GOLDEN.md`](despike/results64v/GOLDEN.md) — version log with all
