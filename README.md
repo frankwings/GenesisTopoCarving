@@ -293,6 +293,35 @@ Requires: PyTorch (cu-enabled), nvdiffrast, open3d, scipy/scikit-image. Tested o
 | `golden-v6.4` | + handle-site check (winding number + exact hull air + geodesic crease guard), per-handle GT audit; genus count right, surface topology 6/21 on fertility |
 | `golden-v6.5` | + strict surface topology (linking-number audit, micro-handle removal, linking-verified late pass, re-audit after refine): 15/15 on five shapes |
 
+## Version history
+
+Every golden version is a git tag; the measured numbers of every version, v1 to v7.1, are in
+[`GOLDEN.md`](experiments/opseq_v5/despike/results64v/GOLDEN.md) (newest at the bottom, v1-v6.1 at the top).
+
+| version | date | what changed | key result |
+|---|---|---|---|
+| v1 / v2 | 2026-09-02 | armadillo only, 64-view DMesh setup, pure TopMod chain, resolution ladder | ho16 0.9957 (DMesh 0.9891), 18k V, watertight |
+| v3 | 2026-09-08 | Palfinger optimizer parameters on the DLFL loop | ho16 0.9983, VolIoU 0.9948 — beats Palfinger's own code on all three metrics |
+| v4 | 2026-09-13 | genus discovery (rays + hull count g\*) on all five shapes, Python backend | 5/5 genus, 120 min/shape (equivalence reference) |
+| v5 | 2026-09-14 | C++ DLFL kernel + batched render | same results, 4.3-5.6 min/shape |
+| v6 | 2026-09-15 | handles located by the space-carved hull (closing-radius ladder plugs), no rays | 9/9 plugs = g\*, zero fallbacks |
+| v6.1 | 2026-09-17 | membranes detected on the mesh, propose-and-verify (DR-verified handles) | fertility 3/3 (v6: 1/4) |
+| v6.2 / v6.3 | 2026-09-26 | late-handle reliability + seam refit | *withdrawn* after the bridge bug was found (LESSONS 7) |
+| v6.4 | 2026-09-30 | handle-site validity (winding numbers, geodesic ratio) | 27/27 genus, 75/75 accepted handles consistent with GT |
+| v6.5 | 2026-10-03 | strict surface topology: linking-number audit, `remove_handle`, oracle check | 15/15 strict-correct, fertility 16/16 (v6.4: 6/21) |
+| v7.0 | 2026-10-07 | thickness-aware coarse subdivision (thin walls) | thin-wall wrecks → CD 0.0059-0.0177, 4/4 healthy |
+| v7.1 | 2026-10-07 | audit ignores pierced air loops, rank gate accepts +N | 113858 9/9, 1417963 11/11 |
+
+Earlier design records: [`LESSONS_2026-08-31.md`](experiments/opseq_v5/despike/LESSONS_2026-08-31.md) (needle
+removal, the first 64-view chain), [`LESSONS_2026-09-02.md`](experiments/opseq_v5/despike/LESSONS_2026-09-02.md)
+(resolution ladder, DMesh face-count comparison, Palfinger parameters, v3-v6.1 §23-33),
+[`NEEDLE_REMOVAL.md`](experiments/opseq_v5/despike/NEEDLE_REMOVAL.md),
+[`HULL_LOCATE_SPEC.md`](experiments/opseq_v5/despike/HULL_LOCATE_SPEC.md) (v6 hull locator),
+[`TOPO_CARVING_ALGORITHM.md`](experiments/opseq_v5/despike/TOPO_CARVING_ALGORITHM.md) and
+[`RESULTS.md`](experiments/opseq_v5/despike/RESULTS.md) (the v5/v6-era write-ups, superseded by `ALGORITHM.md`).
+The experiment directories `experiments/opseq` … `opseq_v4` are the pre-golden generations (operator-sequence
+experiments on the cow/bunny, 6-view era) and are kept in the private repository only.
+
 ## Documentation
 
 - [`ALGORITHM.md`](experiments/opseq_v5/despike/ALGORITHM.md) — **start here**: the whole algorithm stage by
