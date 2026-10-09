@@ -131,9 +131,17 @@ def air_loops(shape, cache=None, min_mouth=20, log=print):
     except Exception: pass
     return loops
 
-def linking(A, B):
-    """Gauss linking number of two closed polylines (exact per segment pair, solid-angle form)."""
-    a, b = A, np.roll(A, -1, 0); c, d = B, np.roll(B, -1, 0)
+def linking(A, B, chunk=2048):
+    """Gauss linking number of two closed polylines (exact per segment pair, solid-angle form).
+    2026-10-08: evaluated in chunks of A-segments - the all-pairs temporaries are |A| x |B| x 3 doubles each (eight of them);
+    on thickness-refined meshes the tree-cotree loops reach 30k vertices and one call took 68 GB (OOM-killed the batch twice)."""
+    if len(A) > chunk:
+        return float(sum(_linking_block(A[i:i + chunk], np.roll(A, -1, 0)[i:i + chunk], B) for i in range(0, len(A), chunk)))
+    return _linking_block(A, np.roll(A, -1, 0), B)
+
+
+def _linking_block(a, b, B):
+    c, d = B, np.roll(B, -1, 0)
     r13 = c[None] - a[:, None]; r14 = d[None] - a[:, None]; r23 = c[None] - b[:, None]; r24 = d[None] - b[:, None]
     nrm = lambda x: x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-300)
     n1 = nrm(np.cross(r13, r14)); n2 = nrm(np.cross(r14, r24)); n3 = nrm(np.cross(r24, r23)); n4 = nrm(np.cross(r23, r13))

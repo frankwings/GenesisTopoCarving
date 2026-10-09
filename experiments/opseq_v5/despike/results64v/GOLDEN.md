@@ -266,3 +266,12 @@ Strict regression 7/7 unchanged (fertility x3 0.00630-0.00639, threeholes 0.0068
 Figure: `results_genus/fig_thick_subdiv_explain.png` (why edge <= wall thickness; 81291 cross-sections before/after).
 Still open after v7.0: thin-wall topology (236142 2/4, 1417963 10/11, 113858 8/9 - Stage 3 opens duplicate or misplaced
 handles on thin parts), walls the silhouettes cannot carve (heptoroid; oracle refuses), wall time +10-130 %.
+
+### v7.1 Thingi10K full batch (2026-10-08, 31 models, tag v71)
+strict-correct + healthy **20/31** (v6.5 17–18), health 30/31 (v6.5 23), genus right 21/30 scored. Same metric as the DMesh++
+table: Chamfer median 0.0108 (v6.5 0.0133, DMesh++ 0.0095), wins 16:14 (v6.5 9:21), VolIoU median 0.897 vs 0.857, closed 30/30
+vs 0/30. Wall median 17.8 min, max 201 min (1681123), total 13.2 h. Regressions vs v6.5 (both v6.5 runs right): 472203 3/3 → 2/3
+(Stage 5 re-sealed a thin-wall tunnel, 5a removed the handle, 5b did not re-drill), 1681123 9/9 → 7/9, 90275 11/11 → 10/11;
+59229 / 472194 / 43399 / 110950 were already run-to-run unstable in v6.5. Per-model: `results_genus/dmesh2/compare_v71.jsonl`.
+Ops: the batch OOM-killed hani.service twice (68 GB `linking()` temporaries on 30k-vertex loops; chunked now) and was moved
+to a `systemd-run` transient unit with `OOMPolicy=continue`.

@@ -36,17 +36,23 @@ Volume IoU / held-out silhouette IoU / Chamfer, golden v7.1 (reference shapes un
 
 Genus: Nicolet 0 always; Palfinger fixed externally; DMesh/DMesh++ soup (no genus defined); **ours 6/6 shapes, 9/9 strict runs**.
 
-### 2b. DMesh++ on 37 models (31 Thingi10K + our 6), official code, same views, one scoring script
+### 2b. DMesh++ on the 31 Thingi10K models (official code, same 64 views, one scoring script `compare_dmesh2.metrics`)
 
-| | DMesh++ | ours v6.5 | ours v7.1 (partial) |
+v7.1 full batch (2026-10-08; 30 scored, 110950 being re-run after an OOM-contaminated late pass):
+
+| | DMesh++ | ours v6.5 | **ours v7.1** |
 |---|---|---|---|
-| closed single-component manifold | **0/37** | 37/37 | 37/37 |
-| genus right (count) | n/a (not closed) | 27/37 (21/31 Thingi10K) | 6/6 of the batch so far + 3/4 thin walls |
-| Chamfer median, Thingi10K 31 | **0.0095** | 0.0135 | expected ≈ 0.009 (thin-wall wrecks fixed) |
-| Chamfer wins, Thingi10K | **22 : 9** | | thin walls now 3:1 for us on the 4 re-run |
-| Chamfer wins, our 6 shapes | 0 : 6 | **6 : 0** | 6 : 0 |
+| closed single-component manifold | **0/30** | 30/30 | **30/30** |
+| genus right (count) | n/a (not closed) | 21/31 | 21/30 |
+| strict-correct (every hull tunnel realised) + healthy geometry | n/a | 17–18/31 | **20/31** |
+| health check (no wreck) | n/a | 23/31 | **30/31** |
+| Chamfer median | **0.0095** | 0.0133 | 0.0108 |
+| Chamfer wins (ours : DMesh++) | | 9 : 21 | **16 : 14** |
+| Volume IoU median | 0.857 | – | **0.897** |
 | GPU peak | 12–29 GB | 3–9 GB | 3–9 GB |
-| wall per model | 3.4–9.7 min | 4–9 min | **12–19 min** (2–3× slower, v7 cost) |
+| wall per model | 3.4–9.7 min | 4–10 min | 18 min median, 201 max (v7 cost) |
+
+On our six reference shapes ours wins Chamfer 6 : 0 (0.0058–0.0071 vs 0.0062–0.0089).
 
 ### 2c. Thin walls (the v6.5 failure class), v7.1
 
@@ -68,7 +74,7 @@ Genus: Nicolet 0 always; Palfinger fixed externally; DMesh/DMesh++ soup (no genu
 | oracle unstable (refused) | 105 |
 | run so far ("usable" subset) | 31 |
 | strict-correct + healthy geometry, v6.5 | 17–18 / 31 (58 %) |
-| strict-correct, v7.1 | 6/6 run + 3/4 thin walls re-run; full batch pending (expected 24–26 / 31) |
+| strict-correct + healthy, v7.1 (full batch 2026-10-08) | **20 / 31** (gained the 5 thin walls, lost 472203 / 1681123 / 90275 — one tunnel each) |
 
 The 72 % the oracle cannot serve are shapes whose tunnels the silhouettes do not resolve (thin curved walls, deep
 concavities, tunnels thinner than a voxel). No competitor *discovers* topology there either — but DMesh++ still returns
@@ -78,7 +84,7 @@ usable (non-closed) geometry on them, we return a refusal.
 
 | gap | size | cause | fix (v8 candidates) |
 |---|---|---|---|
-| **Chamfer on Thingi10K** | DMesh++ 22:9, median 0.0095 vs 0.0135 (v6.5) | thin-wall wrecks (8 of the 13 losses) + concave-corner geometry | v7 closes most; rerun pending. Concave corners need depth-driven carving |
+| **Chamfer on Thingi10K** | now 16:14 for us, median 0.0108 vs DMesh++ 0.0095 (v6.5: 9:21, 0.0133) | remaining losses: concave corners (236142), models where a tunnel is re-sealed in Stage 5 or missed at Stage 3 (472203, 59229, 1681123, 90275) | depth-driven carving; Stage-5 handle guard (PH-style anti-collapse) |
 | **Speed** | 2–3× slower than v6.5 and than DMesh++ since v7 | thickness-refined coarse mesh (2–30× vertices) flows through every stage; 400-step DR per rejected handle | `THICK_RATIO` tuning, skip re-subdivision of already-fine regions, learned candidate ranking to cut rejected rounds |
 | **Coverage** | oracle usable on 28 % of high-genus Thingi10K | visual hull = silhouettes only; concavities invisible | depth-carved space for air loops and site checks; learned proposals for hull-invisible tunnels (verified, or flagged prior-only) |
 | **Thin-wall topology** | 236142 2/4 | post 0.07 off a plate in a concave corner: DR merges them, hull 2.6× fat | same as above (depth carving) |
