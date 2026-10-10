@@ -54,6 +54,12 @@ v7.1 full batch (2026-10-08; 30 scored, 110950 being re-run after an OOM-contami
 
 On our six reference shapes ours wins Chamfer 6 : 0 (0.0058–0.0071 vs 0.0062–0.0089).
 
+<p align="center"><img src="results_genus/fig_thingi10k_dmesh2_metrics.png" width="980"/><br/>
+<i>Per-model Chamfer (log) and volume IoU, 31 Thingi10K models sorted by genus; ✓ = v7.1 beats DMesh++; labels = our genus / GT.</i></p>
+<p align="center"><img src="results_genus/fig_thingi10k_dmesh2_renders.png" width="760"/><br/>
+<i>Ground truth / DMesh++ / ours, same camera: two thin-wall wins (81291, 113858), a large win (135222), a tie (399564), and the two kinds of loss —
+1432740 (bellows: our ridges are there but the whole part sits slightly off, Chamfer penalises it) and 472194 (two tunnels missed, surface noisy).</i></p>
+
 ### 2c. Thin walls (the v6.5 failure class), v7.1
 
 | model | wall p5/p50 | v6.5 | v7.1 | DMesh++ CD |

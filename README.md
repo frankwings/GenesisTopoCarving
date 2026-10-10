@@ -189,9 +189,12 @@ the official code on the same 64 views):
 | t10k_1417963 | 0.145 / 0.193 | 11/11 | 11/11 | 0.8 % | 0.987 | 0.0504 → 0.0084 | **0.0071** |
 | t10k_236142 | 0.010 / 0.123 | 2/4 | 2/4 | 4.4 % | 0.981 | 0.0380 → **0.0177** | 0.0357 |
 
-On the full 31-model Thingi10K set (v6.5 numbers; the v7.1 batch is running) DMesh++ wins Chamfer 22:9 with a
-median of 0.0095 vs 0.0135 — and returns 0/31 closed meshes against our 31/31. On our six reference shapes we win
-6:0 (0.0058–0.0071 vs 0.0062–0.0089).
+On the full 31-model Thingi10K set (v7.1, same scoring script) we win Chamfer **16:14** against DMesh++ (v6.5: 9:21),
+median 0.0108 vs 0.0095, volume IoU 0.897 vs 0.857 — and return 31/31 closed manifolds against their 0/31. On our six
+reference shapes we win 6:0 (0.0058–0.0071 vs 0.0062–0.0089). Full per-model figures and renders:
+[`STATUS_2026-10-08.md`](STATUS_2026-10-08.md) §2b.
+
+<p align="center"><img src="experiments/opseq_v5/despike/results_genus/fig_thingi10k_dmesh2_renders.png" width="720"/></p>
 
 <p align="center">
 <img src="experiments/opseq_v5/despike/results_genus/gifs/botijo_evolution_hd.gif" width="680" alt="botijo reconstruction: genus discovered 0 -> 5"/>
