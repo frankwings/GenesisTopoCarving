@@ -196,6 +196,80 @@ def loop_crossing_pairs(V, F, AIR, step=0.02):
                 out.append((li, int(fc[k]), int(fc[k2]), pts[k], pts[k2], inside_len))
     return out
 
+
+def reroute_pierced(V, F, AIR, shape=None, step=0.02, h=0.008, margin=0.12, log=None):
+    """2026-10-10: an air loop that pierces the reconstructed surface is re-routed through the COMPLEMENT of the surface
+    inside hull air, locally around each sealed passage (shortest path on a fine voxel grid; blocked = mesh material or
+    hull material). If the tunnel is really open (e.g. a freshly drilled tube that does not sit exactly on the hull's
+    curve), the new loop no longer crosses the surface and its linking numbers are valid; if no free path exists the
+    tunnel is sealed and the loop stays pierced (= unrealised). Returns (AIR2, rerouted_flags)."""
+    import open3d as o3d
+    from skimage.graph import route_through_array
+    from scipy.ndimage import binary_dilation
+    shape = shape or os.environ.get("SHAPE", "")
+    cache = f"{OUTD}/hull_plugs_{shape}_128.json.blocks.npz"
+    if not os.path.exists(cache): return list(AIR), [False] * len(AIR)
+    hs = np.load(cache)["hs"].astype(bool); res, pad = 128, 24
+    from eval_local_refine import load_obj, normalize_to_range, BUNNY_PATH
+    gv, _ = load_obj(os.path.join(os.path.dirname(BUNNY_PATH), f"{shape}.obj")); g = normalize_to_range(gv)
+    lo_h, hi_h = g.min(0) - 0.02, g.max(0) + 0.02
+    def hull_solid(P):
+        v = np.rint(pad + (P - lo_h) / (hi_h - lo_h) * (res - 1)).astype(int); v = np.clip(v, 0, np.array(hs.shape) - 1)
+        return hs[v[:, 0], v[:, 1], v[:, 2]]
+    rs = o3d.t.geometry.RaycastingScene(); rs.add_triangles(o3d.t.geometry.TriangleMesh(o3d.core.Tensor(np.asarray(V, np.float32)), o3d.core.Tensor(np.asarray(F, np.uint32))))
+    pairs = loop_crossing_pairs(V, F, AIR, step=step)
+    AIR2 = [np.asarray(A, float).copy() for A in AIR]; flags = [False] * len(AIR)
+    for li in sorted(set(pr[0] for pr in pairs)):
+        A = AIR2[li]; P = np.vstack([A, A[:1]]); a = []
+        for u, v in zip(P[:-1], P[1:]):
+            n = max(1, int(np.linalg.norm(v - u) / step)); a += [u + (v - u) * t / n for t in range(n)]
+        a = np.array(a); occ = rs.compute_occupancy(o3d.core.Tensor(a.astype(np.float32))).numpy() > 0.5
+        if not occ.any() or occ.all(): continue
+        # maximal runs of samples inside the mesh (cyclic); replace each run by a free path between its outside neighbours
+        n = len(a); inside = occ.copy(); runs = []; k = 0
+        start0 = int(np.argmin(inside))                                   # an outside sample to start the cyclic scan
+        idx = [(start0 + i) % n for i in range(n)]; cur = None
+        for i in idx:
+            if inside[i] and cur is None: cur = [i]
+            elif inside[i]: cur.append(i)
+            elif cur is not None: runs.append(cur); cur = None
+        if cur is not None: runs.append(cur)
+        ok_all = True; new_a = a.copy(); repl = {}
+        for run in runs:
+            s_i, e_i = (run[0] - 1) % n, (run[-1] + 1) % n                      # outside samples flanking the run
+            seg = a[run]; lo = np.minimum(seg.min(0), np.minimum(a[s_i], a[e_i])) - margin; hi = np.maximum(seg.max(0), np.maximum(a[s_i], a[e_i])) + margin
+            dims = np.maximum(3, np.ceil((hi - lo) / h).astype(int) + 1)
+            if np.prod(dims) > 4e6: ok_all = False; break
+            ax = [lo[i] + np.arange(dims[i]) * h for i in range(3)]; G = np.stack(np.meshgrid(*ax, indexing="ij"), -1).reshape(-1, 3)
+            blocked = (rs.compute_occupancy(o3d.core.Tensor(G.astype(np.float32))).numpy() > 0.5).reshape(dims)
+            blocked = blocked | hull_solid(G).reshape(dims)        # no dilation: a one-triangle-wide tube must stay passable;
+            cost = np.where(blocked, 1e6, 1.0)                     # a diagonal sneak through a thin wall is caught by the crossing re-check in audit()
+            def cell(p):
+                c = np.clip(np.rint((p - lo) / h).astype(int), 0, dims - 1); c = tuple(int(x) for x in c)
+                if not blocked[c]: return c
+                for dx in (-1, 0, 1):                              # snap to the nearest free cell in the 3x3x3 neighbourhood
+                    for dy in (-1, 0, 1):
+                        for dz in (-1, 0, 1):
+                            q = (min(max(c[0] + dx, 0), dims[0] - 1), min(max(c[1] + dy, 0), dims[1] - 1), min(max(c[2] + dz, 0), dims[2] - 1))
+                            if not blocked[q]: return q
+                return c
+            c0, c1 = cell(a[s_i]), cell(a[e_i])
+            if blocked[c0] or blocked[c1]: ok_all = False; break
+            path, tot = route_through_array(cost, c0, c1, fully_connected=True, geometric=True)
+            if tot >= 1e6: ok_all = False; break                             # had to cross material: sealed
+            repl[tuple(run)] = lo + np.asarray(path, float) * h
+        if not ok_all: continue
+        # rebuild the loop: walk cyclically from start0, substituting runs
+        out = []; i = 0
+        while i < n:
+            j = idx[i]
+            r = next((run for run in runs if run[0] == j), None)
+            if r is not None: out.append(repl[tuple(r)]); i += len(r)
+            else: out.append(a[j][None]); i += 1
+        AIR2[li] = np.vstack(out); flags[li] = True
+        if log: log(f"[reroute] loop {li}: {len(runs)} sealed passage(s) re-routed through the surface complement ({len(A)} -> {len(AIR2[li])} pts)")
+    return AIR2, flags
+
 def genus(V, F):
     E = len(np.unique(np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), 1), axis=0))
     return (2 - (len(V) - E + len(F))) // 2
@@ -222,6 +296,13 @@ def candidate_vector(V, F, fi, fj, AIR):
     return np.round([linking(L, A) for A in AIR]).astype(int)
 
 def audit(V, F, AIR):
+    # 2026-10-10: pierced loops are first re-routed through the complement of the surface (reroute_pierced); only a loop
+    # that still has no free path counts as unrealised.
+    if len(AIR) and int(os.environ.get("AUDIT_REROUTE", "1")):
+        try:
+            cr0, _ = loop_crossings(V, F, AIR)
+            if any(cr0): AIR, _ = reroute_pierced(V, F, AIR)
+        except Exception as _e: pass
     loops, Ls, R, err = surface_matrix(V, F, AIR)
     # 2026-10-07: an air loop that pierces the surface (a sealed tunnel on a thin wall: the loop crosses the skin twice) is
     # not in the complement, its linking numbers are meaningless and inflated the rank above the genus (113858: rank 9 on a

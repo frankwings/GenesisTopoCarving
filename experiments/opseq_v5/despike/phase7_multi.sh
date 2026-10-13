@@ -6,7 +6,7 @@ set -u
 cd /home/kingy/Projects/Genesis/GenesisTopmod/experiments/opseq_v5
 S=$SHAPE; R=${ROUNDS:-6}; cur=$1; LOOP=${LOOP_STEPS:-400}
 export HANDLES_JSON=/tmp/liou_cow_viz/handles_${S}.json; rm -f $HANDLES_JSON /tmp/liou_cow_viz/sitelog_${S}.jsonl /tmp/liou_cow_viz/cow_${S}_${S}_h[0-9]*.npz   # no stale round outputs
-COMMON="MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.5 COLLAPSE_FRAC=${COLLAPSE_FRAC:-0.02} SI_PUSH=0.15"
+COMMON="MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.5 COLLAPSE_FRAC=${COLLAPSE_FRAC:-0.02} SI_PUSH=0.15 HANDLE_GUARD=${HANDLE_GUARD:-1} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03}"   # 2026-10-12 (LESSONS 7m): throat guard keeps a freshly drilled thin-wall tube open through the 400-step DR (A/B on 472203: off -> re-sealed, guard -> kept)
 # BATCH_OPEN=1: round 0 opens every site-valid (MEMBRANE/CONTACT) candidate in one go, no DR in between, then ONE
 # Stage-4 loop. Whatever is still missing (genus < g*, e.g. candidates the site check could not classify) is left
 # to the verified one-handle-per-round loop below.
@@ -17,7 +17,7 @@ if [ "${BATCH_OPEN:-0}" = "1" ] && [ "${SKIP_ROUNDS:-0}" != "1" ]; then
   nb=$(echo "$out" | sed -nE 's/.*handles added: ([0-9]+).*/\1/p' | tail -1)
   ho_ref=$(echo "$out" | sed -nE 's/^\[base\].*ho16=([0-9.]+) hair=([0-9]+).*/\1/p' | head -1); hair_ref=$(echo "$out" | sed -nE 's/^\[base\].*ho16=([0-9.]+) hair=([0-9]+).*/\2/p' | head -1)
   if [ "${nb:-0}" -gt 0 ] && [ -f /tmp/liou_cow_viz/cow_${S}_${S}_h0.npz ]; then
-    fin=$(env MODE=64v SHAPE=$S TAG=${S}_h0b STEPS=$LOOP $COMMON BASE_NPZ=/tmp/liou_cow_viz/cow_${S}_${S}_h0.npz python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|Traceback\|Error"); echo "$fin"
+    fin=$(env MODE=64v SHAPE=$S TAG=${S}_h0b STEPS=$LOOP $COMMON BASE_NPZ=/tmp/liou_cow_viz/cow_${S}_${S}_h0.npz python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|handle guard\|Traceback\|Error"); echo "$fin"
     ho_new=$(echo "$fin" | sed -nE 's/.*ho16=([0-9.]+) hair=([0-9]+).*/\1/p' | tail -1); hair_new=$(echo "$fin" | sed -nE 's/.*ho16=([0-9.]+) hair=([0-9]+).*/\2/p' | tail -1)
     echo "##### $S batch round: BATCH ACCEPTED $nb handle(s) (ho16 $ho_ref -> $ho_new, hair $hair_ref -> $hair_new)"
     ho_ref=$ho_new; hair_ref=$hair_new; cur=/tmp/liou_cow_viz/cow_${S}_${S}_h0b.npz
@@ -34,7 +34,7 @@ for r in $(seq 1 $R); do
   if [ ! -f /tmp/liou_cow_viz/cow_${S}_${S}_h$r.npz ]; then echo "##### handle stage failed in round $r (see above); stopping with $((r-1)) handles"; break; fi
   prev_cur=$cur; cur=/tmp/liou_cow_viz/cow_${S}_${S}_h$r.npz
   echo "##### $S round $r: Stage-4 loop $LOOP steps"
-  fin=$(env MODE=64v SHAPE=$S TAG=${S}_h${r}b STEPS=$LOOP $COMMON BASE_NPZ=$cur python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|Traceback\|Error"); echo "$fin"
+  fin=$(env MODE=64v SHAPE=$S TAG=${S}_h${r}b STEPS=$LOOP $COMMON BASE_NPZ=$cur python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|handle guard\|Traceback\|Error"); echo "$fin"
   # VERIFY (propose-and-verify): the handle must open something. Compare the post-DR held-out score with the
   # reference (previous accepted round's post-DR score; round 1: the [base] score of the input mesh).
   ho_new=$(echo "$fin" | sed -nE 's/.*ho16=([0-9.]+) hair=([0-9]+).*/\1/p' | tail -1); hair_new=$(echo "$fin" | sed -nE 's/.*ho16=([0-9.]+) hair=([0-9]+).*/\2/p' | tail -1)
@@ -85,7 +85,7 @@ import json; p='$HANDLES_JSON'; h=json.load(open(p)); h[-1]['rejected']=True; h[
   fi
 done
 echo "##### $S: last round mesh: $cur"
-[ "${SKIP_FINAL:-0}" = "1" ] && { cp $cur /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz; echo "##### SKIP_FINAL: saved cow_${S}_${S}_hlast.npz"; exit 0; }
+[ "${SKIP_FINAL:-0}" = "1" ] && { cp $cur /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz; [ -f $cur.haxes.npz ] && cp $cur.haxes.npz /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz.haxes.npz; echo "##### SKIP_FINAL: saved cow_${S}_${S}_hlast.npz"; exit 0; }
 echo "##### $S: final Stage-4 (1200) -> Stage 5 -> Taubin from $cur"
 env MODE=64v SHAPE=$S TAG=${S}_hfin STEPS=1200 $COMMON BASE_NPZ=$cur python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|Traceback\|Error"
 env MODE=64v SHAPE=$S TAG=${S}_p5 SUBDIV_ALL=1 LAP_MULT=3 STEPS=1200 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.4 COLLAPSE_FRAC=${COLLAPSE_FRAC:-0.02} SI_PUSH=0.15 BASE_NPZ=/tmp/liou_cow_viz/cow_${S}_${S}_hfin.npz python3 despike/phase4_inloop.py 2>&1 | grep "\[final\]\|subdivision\|Traceback\|Error"

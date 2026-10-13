@@ -734,6 +734,8 @@ if BATCH_OPEN: _hull_max = MAX_HANDLES + int(os.environ.get("BATCH_TRIES", "8"))
 # any more (all tunnels already open - the missing genus is then a JOIN for the strict late pass); real drills were
 # within 0.3. Joins (contact) are exempt.
 AIR_GUARD = int(os.environ.get("AIR_GUARD", "0")); AIR_R = float(os.environ.get("AIR_GUARD_R", "0.5")); _air_block = set()
+AIR_ONLY = int(os.environ.get("AIR_ONLY", "0"))   # reopen pass: only air-loop drills (sealed tunnels), stop on tunnels realised, not genus
+
 if AIR_GUARD and not BATCH_OPEN: _hull_max = MAX_HANDLES + int(os.environ.get("AIR_TRIES", "4"))
 def air_guard(V, F, ci, cj):
     """(ok, text). ok=None when the air loops are unavailable (guard off for this shape)."""
@@ -754,12 +756,23 @@ for k in range(_hull_max):
     MODE_BRIDGE = False
     _hc_hit = False
     if (BATCH_OPEN or AIR_GUARD) and n_added >= MAX_HANDLES: break
-    if G_TARGET is not None and genus(V, Fa) >= G_TARGET:
+    if AIR_ONLY:
+        # 2026-10-10 reopen pass (LESSONS 7m): runs BEFORE strict repair on the refined mesh. The genus may already equal
+        # g* while some tunnels are re-sealed (their air loops pierce the skin) and the same number of handles realise
+        # nothing; the stop criterion is therefore the number of tunnels REALISED, not the genus count.
+        try:
+            import linking_audit as _la
+            if "_ad_air" not in globals(): globals()["_ad_air"] = _la.air_loops(SHAPE, log=lambda m: None)
+            _rk = _la.audit(V, Fa, globals()["_ad_air"])["rank"] if globals()["_ad_air"] else None
+        except Exception as _e: _rk = None
+        if _rk is not None and G_TARGET is not None and _rk >= G_TARGET:
+            print(f"[p7] AIR_ONLY: tunnels realised {_rk} >= g*={G_TARGET}: nothing sealed, no more handles", flush=True); break
+    elif G_TARGET is not None and genus(V, Fa) >= G_TARGET:
         print(f"[p7] genus {genus(V, Fa)} == target g*={G_TARGET}: no more handles", flush=True); break
     if DETECT in ("hull", "membrane"):
         if DETECT == "membrane":
             import membrane_locate
-            _hull_cands = membrane_locate.find_tunnel_by_membranes(V, Fa, HF, search_handles(), G_TARGET, r_dedup=R_DEDUP, log=lambda m: print(m, flush=True))
+            _hull_cands = [] if AIR_ONLY else membrane_locate.find_tunnel_by_membranes(V, Fa, HF, search_handles(), G_TARGET, r_dedup=R_DEDUP, log=lambda m: print(m, flush=True))
             if int(os.environ.get("AIR_DRILL", "0")):
                 # 2026-10-05: drill ON THE TUNNEL AXIS. Each hull tunnel has an air loop through its middle; where the mesh
                 # still seals the tunnel the loop enters and leaves mesh material. A handle between the entry and exit faces
@@ -778,6 +791,8 @@ for k in range(_hull_max):
                         _hull_cands = [(_fi, _fj, _ci, _cj, ["airloop", [round(float(x), 3) for x in _mid]])] + list(_hull_cands or [])
                         break
                 except Exception as _e: print(f"[p7] air-loop drill unavailable ({_e})", flush=True)
+                if AIR_ONLY and not (_hull_cands and _hull_cands[0][4] and _hull_cands[0][4][0] == "airloop"):
+                    print(f"[p7] AIR_ONLY: no sealed passage to reopen (genus {genus(V, Fa)}): stop", flush=True); _hull_cands = []; break
         else:
             _hull_cands = find_tunnel_by_hull(V, Fa, HF, search_handles(), G_TARGET)
         if _hull_cands:

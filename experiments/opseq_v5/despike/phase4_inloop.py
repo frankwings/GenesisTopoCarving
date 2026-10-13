@@ -52,6 +52,11 @@ SMOOTH_LAM = float(os.environ.get("SMOOTH_LAM", "0.2"))
 W_T = float(os.environ.get("W_T", "20.0"))
 HANDLE_GUARD = float(os.environ.get("HANDLE_GUARD", "0"))   # >0: PH-inspired anti-collapse guard (Gu et al.) keeping each add_handle tunnel throat open during DR
 HANDLE_GUARD_KEEP = float(os.environ.get("HANDLE_GUARD_KEEP", "0.8"))   # target throat = keep x initial throat
+HANDLE_GUARD_MIN = float(os.environ.get("HANDLE_GUARD_MIN", "0"))
+HANDLE_GUARD_SEALED = float(os.environ.get("HANDLE_GUARD_SEALED", "0"))   # hard min radius below which an axis counts as sealed (not guarded); 0 = guard every axis (the min-radius test did not separate fresh tubes from sealed tunnels on 472203, so it is off)
+AIRLOOP_GUARD = float(os.environ.get("AIRLOOP_GUARD", "0"))   # 2026-10-11: keep the surface >= AIRLOOP_R away from every hull air loop (the tunnel axes the audit uses).
+AIRLOOP_R = float(os.environ.get("AIRLOOP_R", "0.02"))        # hull air is always true air, so this never fights the images; it stops DR from re-sealing a tunnel the hull says exists.
+AIRLOOP_EVERY = int(os.environ.get("AIRLOOP_EVERY", "25"))    # refresh the near-loop vertex set every N steps (KD-tree), penalty on that set every step   # 2026-10-10: absolute floor for the throat radius (a one-triangle tube on a thickness-refined mesh starts at ~0.01 and the Laplacian closes it; the audit needs ~0.02 of clearance to route through)
 MEMB_EXEMPT = float(os.environ.get("MEMB_EXEMPT", "0"))   # >0: faces whose interior is more than this many voxels outside the hull are MEMBRANES spanning a tunnel -> no hull-field pull (keep them visible for topology discovery)
 THIN_GUARD = int(os.environ.get("THIN_GUARD", "0"))          # 1: thin-structure guard from hull thickness (real data): no hull-field loss and no collapses where the hull is thin
 THIN_PX_LO = float(os.environ.get("THIN_PX_LO", "3.0"))     # hull thickness (px) at/below which a vertex is fully "thin" (guard weight 0)
@@ -459,10 +464,40 @@ if HANDLE_GUARD > 0:
         _z = np.load(_bx)
         for _k in range(int(_z["n"])):
             a0 = torch.tensor(_z[f"a0_{_k}"], dtype=torch.float32, device=DEVICE); u = torch.tensor(_z[f"u_{_k}"], dtype=torch.float32, device=DEVICE)
-            _GUARD_AXES.append((a0, u)); _GUARD_TARGETS.append(_hg.axis_throat_target(verts_t.detach(), a0, u, HANDLE_GUARD_KEEP))
+            _t0 = _hg.axis_throat_target(verts_t.detach(), a0, u, 1.0)
+            # sealed test on the HARD minimum radius within the axis segment (the soft-min throat is biased negative by
+            # log(n)/soft and is useless as an absolute test - it skipped every axis on 2026-10-12): a one-triangle fresh
+            # tube has min radius ~ edge/4 (0.008 at edge 0.032), a sealed tunnel has vertices on the axis (< 0.002).
+            _L = float(_z[f"L_{_k}"]) if f"L_{_k}" in _z.files else 1.0
+            with torch.no_grad():
+                _d = verts_t.detach() - a0; _t = _d @ u; _r = (_d - _t.unsqueeze(-1) * u).norm(dim=-1)
+                _in = (_t.abs() <= 0.5 * _L + 0.02); _rmin = float(_r[_in].min()) if bool(_in.any()) else float(_r.min())
+            if HANDLE_GUARD_MIN > 0 and _rmin < HANDLE_GUARD_SEALED:
+                print(f"[p4] handle guard: axis {_k} min radius {_rmin:.4f} < {HANDLE_GUARD_SEALED} -> tunnel already sealed at stage start, not guarded (re-drill belongs to the reopen pass)", flush=True); continue
+            _GUARD_AXES.append((a0, u)); _GUARD_TARGETS.append(max(HANDLE_GUARD_KEEP * _t0, HANDLE_GUARD_MIN))
         print(f"[p4] handle guard ON: {len(_GUARD_AXES)} tunnel(s), targets {[round(t,3) for t in _GUARD_TARGETS]}", flush=True)
     else:
         print(f"[p4] handle guard requested but no {_bx}; guard inactive", flush=True)
+# --- air-loop guard (2026-10-11): repulsion from the hull tunnel axes, every DR stage, no axes file needed ---
+_AL_PTS = None; _AL_T = None; _al_near = None; _al_tgt = None
+if AIRLOOP_GUARD > 0 and SHAPE and not os.environ.get("REAL_DATA"):
+    try:
+        import linking_audit as _la
+        _al = _la.air_loops(SHAPE, log=lambda m: None)
+        if _al:
+            _AL_PTS = np.vstack([A[::2] for A in _al]).astype(np.float32); _AL_T = torch.tensor(_AL_PTS, device=DEVICE)
+            print(f"[p4] air-loop guard ON: {len(_al)} loops, {len(_AL_PTS)} axis points, clearance {AIRLOOP_R}, weight {AIRLOOP_GUARD}", flush=True)
+    except Exception as _e: print(f"[p4] air-loop guard unavailable ({_e})", flush=True)
+def _airloop_refresh(Vnp):
+    """vertices within 3 x AIRLOOP_R of a loop point (KD-tree), and for each its nearest loop point index."""
+    global _al_near, _al_tgt
+    from scipy.spatial import cKDTree
+    d, j = cKDTree(_AL_PTS).query(np.asarray(Vnp, np.float32), distance_upper_bound=3 * AIRLOOP_R)
+    m = np.isfinite(d); _al_near = torch.tensor(np.flatnonzero(m), device=DEVICE); _al_tgt = torch.tensor(j[m], device=DEVICE)
+def _airloop_loss(verts_t):
+    if _AL_T is None or _al_near is None or len(_al_near) == 0: return verts_t.sum() * 0.0
+    d = (verts_t[_al_near] - _AL_T[_al_tgt]).norm(dim=-1)
+    return AIRLOOP_GUARD * torch.relu(AIRLOOP_R - d).pow(2).sum()
 # --- optional vertex freeze mask (localized DR, e.g. seam repair at a 5b handle mouth) ---
 # FREEZE_MASK=path.npz with array "w" (len V): 1 = free to move, 0 = frozen at the input position,
 # fractional = partially constrained. Applied by projection after every optimizer step, so this is a
@@ -488,8 +523,11 @@ def rebuild(Fa):
 faces_t, faces_l, src, dst, deg, pairs_t = rebuild(Fa)
 t0 = time.time(); nflips_total = 0; ncollapse_total = 0; nsplit_total = 0; npush_total = 0
 _E0 = np.concatenate([Fa[:, [0, 1]], Fa[:, [1, 2]], Fa[:, [2, 0]]]); me0 = float(np.linalg.norm(V[_E0[:, 0]] - V[_E0[:, 1]], axis=1).mean())
+_al_n = -1
 for step in range(STEPS):
     opt.zero_grad()
+    if _AL_T is not None and (step % AIRLOOP_EVERY == 0 or verts_t.shape[0] != _al_n):
+        _airloop_refresh(verts_t.detach().cpu().numpy()); _al_n = verts_t.shape[0]
     me = mean_edge_of(verts_t.detach(), src, dst)
     nl = torch.tensor(0.0, device=DEVICE)
     if MODE == "64v" and RENDER_BATCH:
@@ -538,7 +576,8 @@ for step in range(STEPS):
             + W_SLIVER * sliver_pen(verts_t, faces_l, me)
             + W_FOLD * FOLD_MULT * fold_loss(verts_t, faces_l, pairs_t)
             + W_T * field_loss(verts_t, faces_l)
-            + (HANDLE_GUARD * _hg.handles_guard_loss(verts_t, _GUARD_AXES, _GUARD_TARGETS) if _GUARD_AXES else 0.0))
+            + (HANDLE_GUARD * _hg.handles_guard_loss(verts_t, _GUARD_AXES, _GUARD_TARGETS) if _GUARD_AXES else 0.0)
+            + (_airloop_loss(verts_t) if _AL_T is not None else 0.0))
     loss.backward()
     if PALF_LAP > 0 or PALF_CLIP > 0:
         # Palfinger MeshOptimizer.step(): nu = |m1 / sqrt(m2)| (Adam-normalised velocity, O(1) while moving,

@@ -9,10 +9,10 @@ cd /home/kingy/Projects/Genesis/GenesisTopmod/experiments/opseq_v5; ln -sfn $PWD
 NS=/usr/lib/wsl/lib/nvidia-smi; export PATH=$PATH:/usr/lib/wsl/lib
 GLIM=${GUARD_MIB:-28000}
 guard() { for n in $(seq 1 180); do u=$($NS --query-gpu=memory.used --format=csv,noheader,nounits | head -1); [ "$u" -le $GLIM ] && { echo "[guard] GPU used ${u} MiB -> go"; return; }; echo "[guard] GPU used ${u} MiB > $GLIM, waiting 60s ($n/180)"; sleep 60; done; }
-PALF="ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200"
+PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200"
 export SEED=${SEED:-0}; P=${TAGP:-v4}; [ "$SEED" != "0" ] && P=${P}s${SEED}
 export SNAPSHOT_EVERY=${SNAPSHOT_EVERY:-0} SNAPSHOT_MODE=64
-F4="\[adapt\] step.*->\|\[final\]\|\[vram\]\|Traceback\|Error"
+F4="\[adapt\] step.*->\|\[final\]\|\[vram\]\|handle guard\|Traceback\|Error"
 declare -A GT=([armadillo]=0 [kitten]=1 [rockerarm]=1 [fertility]=4 [threeholes]=3 [botijo]=5 [heptoroid]=22)
 _gt_of() { local g="${GT[$1]:-${GT_GENUS:-?}}"; echo "$g"; }   # GT_GENUS: ground-truth genus of a shape that is not in the table (benchmark runs)
 genus_of() { python3 -c "
@@ -26,6 +26,7 @@ STRICT=${STRICT:-$([ -n "${REAL_DATA:-}" ] && echo 0 || echo 1)}
 # 64-view visual hull is thinner than the mesh edge, before the two sides of a thin wall can interpenetrate; Stage 4 then
 # equalizes instead of a global cc round. THICK_SUBDIV=0 reproduces golden v6.5.
 export THICK_SUBDIV=${THICK_SUBDIV:-1}
+hx() { [ -f "$1.haxes.npz" ] && cp "$1.haxes.npz" "$2.haxes.npz"; return 0; }   # 2026-10-12: handle axes (world-space lines) ride along every stage so the throat guard can run in Stage 4-7
 need() { [ -f "$1" ] && return 0; echo "[RESULT] $S $P: ABORTED - stage $2 produced no output ($(basename $1)); nothing downstream is valid"; echo "[$S] wall $(( $(date +%s) - T0 ))s"; return 1; }   # 2026-10-06: a crashed stage used to fall through on stale files and still print [RESULT]
 chain() { S=$1; T0=$(date +%s); T=${S}_$P
   if [ "$SNAPSHOT_EVERY" != "0" ]; then FD=$PWD/out_liou/frames_${P}_$S; export SNAPSHOT_DIR=$FD; mkdir -p $FD; else unset SNAPSHOT_DIR; fi
@@ -44,11 +45,12 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
   need $O/cow_${S}_${T}_cc3p4.npz 2 || return 0
   if [ -f $O/cow_${T}_hlast.npz ]; then echo "[$S 3] skip"; else guard; rm -f $O/cow_${S}_${S}_hlast.npz
     env SNAPSHOT_TITLE="Stage 3 [loop after add_handle]" SHAPE=$S ROUNDS=${S3_ROUNDS:-8} COLLAPSE_FRAC=0.02 SKIP_FINAL=1 GENUS_TARGET=${GT_MODE:-hull} bash despike/phase7_multi.sh $O/cow_${S}_${T}_cc3p4.npz 2>&1 | grep --line-buffered "genus target\|after handle\|relaxation\|contact\|no more\|UNREACHED\|handles added\|JEV gate\|batch\|BATCH\|RANK gate\|air guard\|air-loop\|membrane check\|site:\|failed\|VERIFIED\|REJECTED\|Traceback\|Error" | sed "s/^/[$S 3] /"
-    cp $O/cow_${S}_${S}_hlast.npz $O/cow_${T}_hlast.npz; cp $O/handles_${S}.json despike/results_genus/handles_${T}.json 2>/dev/null; cp $O/sitelog_${S}.jsonl despike/results_genus/sitelog_${T}.jsonl 2>/dev/null; fi
+    cp $O/cow_${S}_${S}_hlast.npz $O/cow_${T}_hlast.npz; hx $O/cow_${S}_${S}_hlast.npz $O/cow_${T}_hlast.npz; cp $O/handles_${S}.json despike/results_genus/handles_${T}.json 2>/dev/null; cp $O/sitelog_${S}.jsonl despike/results_genus/sitelog_${T}.jsonl 2>/dev/null; fi
   need $O/cow_${T}_hlast.npz 3 || return 0
   echo "[$S 3] genus after coarse discovery: $(genus_of $O/cow_${T}_hlast.npz) (GT $(_gt_of $S))"
   if [ -f $O/cow_${T}_early.npz ]; then echo "[$S 4] skip"; else guard; env SNAPSHOT_TITLE="Stage 4" MODE=64v SHAPE=$S TAG=${T}_early RESUME_FROM=$O/cow_${T}_hlast.npz python3 -u despike/run_64v.py 2>&1 | grep --line-buffered "heldout\|\[train\]\|Traceback\|Error" | sed "s/^/[$S 4] /"; fi
   need $O/cow_${T}_early.npz 4 || return 0
+  hx $O/cow_${T}_hlast.npz $O/cow_${T}_early.npz
   if [ -f $O/cow_${S}_${T}_p4.npz ]; then echo "[$S 5] skip"; else guard; env SNAPSHOT_TITLE="Stage 5 [golden v3 loop]" MODE=64v SHAPE=$S TAG=${T}_p4 $PALF MEMB_EXEMPT=2 BASE_NPZ=$O/cow_${T}_early.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "$F4" | sed "s/^/[$S 5] /"; fi
   need $O/cow_${S}_${T}_p4.npz 5 || return 0
   # 5b late genus pass: only if the fine mesh is still below g* (rays first, then contact join)
@@ -59,12 +61,23 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
     # with the 2-second near-pair detector, a linking-vector prefilter and "tunnels realised +1" as the only accept rule.
     STRICT_ENV=""
     if [ "$STRICT" = "1" ]; then
-      cp $O/cow_${S}_${T}_p4.npz $O/cow_${S}_${T}_p4pre.npz
+      cp $O/cow_${S}_${T}_p4.npz $O/cow_${S}_${T}_p4pre.npz; hx $O/cow_${S}_${T}_p4.npz $O/cow_${S}_${T}_p4pre.npz
+      # 5a-0 reopen pass (2026-10-10, LESSONS 7m): the Stage-5 refine can re-seal a thin-wall tunnel that Stage 3 had opened
+      # (its air loop pierces the skin again); the repair below would then remove that handle as "realising nothing" and
+      # the late pass had to re-drill from scratch (472203 / 1681123 / 90275 lost one tunnel each in the v7.1 batch).
+      # Re-drill every sealed passage on the tunnel axis FIRST (air-loop drills only, accepted on tunnels-realised +N),
+      # then remove what is still fake.
+      if [ "${REOPEN:-1}" = "1" ]; then rm -f /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz
+        env SNAPSHOT_TITLE="Stage 5a-0 [reopen sealed tunnels]" SHAPE=$S ROUNDS=${REOPEN_ROUNDS:-4} COLLAPSE_FRAC=0.02 SKIP_FINAL=1 GENUS_TARGET=${GT_MODE:-hull} AIR_DRILL=1 AIR_ONLY=1 HULL_COMPLETE=0 NEAR_PAIRS=0 RANK_GATE=1 RANK_ONLY=1 bash despike/phase7_multi.sh $O/cow_${S}_${T}_p4pre.npz 2>&1 | grep --line-buffered "air-loop\|AIR_ONLY\|RANK gate\|VERIFIED\|REJECTED\|no more\|handles added\|Traceback\|Error" | sed "s/^/[$S 5a-0] /"
+        [ -f /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz ] && { cp /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${S}_${T}_p4pre.npz; hx /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${S}_${T}_p4pre.npz; }
+        echo "[$S 5a-0] after reopen: $(SHAPE=$S python3 despike/linking_audit.py --rank $O/cow_${S}_${T}_p4pre.npz 2>/dev/null | tail -1) (rank genus n_air tiny)"
+      fi
       SHAPE=$S python3 despike/strict_repair.py $O/cow_${S}_${T}_p4pre.npz $O/cow_${S}_${T}_p4.npz 2>&1 | grep --line-buffered "\[repair\]" | sed "s/^/[$S 5a] /"
+      hx $O/cow_${S}_${T}_p4pre.npz $O/cow_${S}_${T}_p4.npz
       STRICT_ENV="HULL_COMPLETE=${STRICT_HULL:-0} NEAR_PAIRS=1 THIN_ALIGN=0.2 RANK_PREFILTER=1 RANK_GATE=1 RANK_ONLY=1"
     fi
     env SNAPSHOT_TITLE="Stage 5b [late genus pass]" SHAPE=$S ROUNDS=${S5_ROUNDS:-4} COLLAPSE_FRAC=0.02 SKIP_FINAL=1 GENUS_TARGET=${GT_MODE:-hull} $STRICT_ENV bash despike/phase7_multi.sh $O/cow_${S}_${T}_p4.npz 2>&1 | grep --line-buffered "near-pair\|linking vector\|genus target\|after handle\|contact\|no more\|UNREACHED\|handles added\|JEV gate\|batch\|BATCH\|RANK gate\|air guard\|air-loop\|membrane check\|site:\|broke\|VERIFIED\|REJECTED\|failed\|Traceback\|Error" | sed "s/^/[$S 5b] /"
-    cp /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${T}_p4g.npz
+    cp /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${T}_p4g.npz; hx /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${T}_p4g.npz
     cp $O/handles_${S}.json despike/results_genus/handles_${T}_5b.json 2>/dev/null; cp $O/sitelog_${S}.jsonl despike/results_genus/sitelog_${T}_5b.jsonl 2>/dev/null; fi   # archive the LATE handle mids too (v6.3: they mark the seam location)
   need $O/cow_${T}_p4g.npz 5b || return 0
   echo "[$S 5b] genus after late pass: $(genus_of $O/cow_${T}_p4g.npz) (GT $(_gt_of $S))"
@@ -82,15 +95,15 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
     RK6=$(SHAPE=$S python3 despike/linking_audit.py --rank $O/cow_${S}_${T}_p5.npz 2>/dev/null | tail -1); r6=$(echo $RK6 | cut -d' ' -f1); g6=$(echo $RK6 | cut -d' ' -f2); n6=$(echo $RK6 | cut -d' ' -f3)
     if [ "${r6:--1}" -ge 0 ] 2>/dev/null && { [ "$r6" != "$g6" ] || [ "$r6" != "$n6" ]; }; then
       echo "[$S 6s] after refine: genus $g6, tunnels realised $r6/$n6 -> strict repair on the refined mesh"; guard
-      cp $O/cow_${S}_${T}_p5.npz $O/cow_${S}_${T}_p5pre.npz
+      cp $O/cow_${S}_${T}_p5.npz $O/cow_${S}_${T}_p5pre.npz; hx $O/cow_${S}_${T}_p5.npz $O/cow_${S}_${T}_p5pre.npz; hx $O/cow_${S}_${T}_p5.npz $O/cow_${S}_${T}_p5r.npz
       SHAPE=$S python3 despike/strict_repair.py $O/cow_${S}_${T}_p5pre.npz $O/cow_${S}_${T}_p5r.npz 2>&1 | grep --line-buffered "\[repair\]" | sed "s/^/[$S 6s] /"
       env SNAPSHOT_TITLE="Stage 6s [strict late pass]" SHAPE=$S ROUNDS=4 COLLAPSE_FRAC=0.02 SKIP_FINAL=1 GENUS_TARGET=${GT_MODE:-hull} HULL_COMPLETE=${STRICT_HULL:-0} NEAR_PAIRS=1 THIN_ALIGN=0.2 RANK_PREFILTER=1 RANK_GATE=1 RANK_ONLY=1 bash despike/phase7_multi.sh $O/cow_${S}_${T}_p5r.npz 2>&1 | grep --line-buffered "near-pair\|UNREACHED\|RANK gate\|VERIFIED\|REJECTED\|Traceback\|Error" | sed "s/^/[$S 6s] /"
-      cp /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${S}_${T}_p5.npz; rm -f $O/cow_${S}_${T}_p5b.npz; STRICT_LATE=1
+      cp /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${S}_${T}_p5.npz; hx /tmp/liou_cow_viz/cow_${S}_${S}_hlast.npz $O/cow_${S}_${T}_p5.npz; rm -f $O/cow_${S}_${T}_p5b.npz; STRICT_LATE=1
       echo "[$S 6s] after strict repair: $(SHAPE=$S python3 despike/linking_audit.py --rank $O/cow_${S}_${T}_p5.npz 2>/dev/null | tail -1) (rank genus n_air tiny)"
     fi
   fi
   if [ "$(genus_of $O/cow_${S}_${T}_p4.npz)" != "$(genus_of $O/cow_${T}_p4g.npz)" ] || [ "$STRICT_LATE" = "1" ]; then
-    if [ -f $O/cow_${S}_${T}_p5b.npz ]; then echo "[$S 6b] skip"; else guard; env SNAPSHOT_TITLE="Stage 6b [late-handle seam refit]" MODE=64v SHAPE=$S TAG=${T}_p5b STEPS=500 MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100000 COLLAPSE_FRAC=0 SI_PUSH=0.15 LAP_MULT=1 BASE_NPZ=$O/cow_${S}_${T}_p5.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "$F4" | sed "s/^/[$S 6b] /"; fi
+    if [ -f $O/cow_${S}_${T}_p5b.npz ]; then echo "[$S 6b] skip"; else guard; env SNAPSHOT_TITLE="Stage 6b [late-handle seam refit]" MODE=64v SHAPE=$S TAG=${T}_p5b HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} STEPS=500 MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100000 COLLAPSE_FRAC=0 SI_PUSH=0.15 LAP_MULT=1 BASE_NPZ=$O/cow_${S}_${T}_p5.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "$F4" | sed "s/^/[$S 6b] /"; fi
     TB_BASE=$O/cow_${S}_${T}_p5b.npz; TB_ENV="ITERS=5"   # fixed x5: AUTO can pick too few iterations to polish the refit
   else
     TB_BASE=$O/cow_${S}_${T}_p5.npz; TB_ENV="AUTO=1"
