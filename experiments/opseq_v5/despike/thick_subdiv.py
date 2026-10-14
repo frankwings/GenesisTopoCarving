@@ -14,22 +14,41 @@ import os, numpy as np
 from scipy.ndimage import distance_transform_edt, maximum_filter
 
 
-def local_thickness_grid(hull, sp, radii_vox=(1, 2, 3, 4, 6, 8, 12, 16, 24, 32)):
-    """hull: bool [n,n,n] (True inside); sp: voxel spacing per axis (world). Returns L [n,n,n] in world units
-    (0 outside the hull) = 2 x radius of the largest inscribed ball covering the voxel (Chebyshev approximation)."""
-    din = distance_transform_edt(hull, sampling=tuple(sp)).astype(np.float32)   # inside distance to boundary
-    pitch = float(np.max(sp)); L = din.copy()
-    for r in radii_vox:
-        cand = np.where(din >= r * pitch, din, 0.0).astype(np.float32)        # balls of radius >= r
-        if not cand.any(): break
-        L = np.maximum(L, maximum_filter(cand, size=2 * r + 1))              # cover every voxel within r
-    return 2.0 * L * hull
+def local_thickness_grid(hull, sp, r_max_vox=48):
+    """hull: bool [n,n,n] (True inside); sp: voxel spacing per axis (world). Returns L [n,n,n] in world units (0 outside
+    the hull) = 2 x radius of the largest inscribed ball covering the voxel (Hildebrand & Ruegsegger local thickness).
+    2026-10-13: exact per integer radius. A voxel is covered by a ball of radius >= r iff its distance to the set
+    {din >= r} is <= r, so L = 2 x max r with EDT(~{din >= r}) <= r. The previous max-filter ladder propagated each
+    ball centre only within a Chebyshev box of the next LOWER ladder radius, which under-estimated a 0.19-thick wall
+    as 0.07 and made THICK_SUBDIV refine whole models (1681123: 962 -> 30k vertices, Stage 3 wrecked)."""
+    sp = np.asarray(sp, float); pitch = float(np.max(sp))
+    # the hull grid is nres^3 over the object's bbox, so a flat part has 5x finer voxels along its thin axis
+    # (1681123: sp = 0.0128, 0.0128, 0.0025). Work on an isotropic grid at the coarsest spacing (integer strides),
+    # then expand back - the per-radius test below needs isotropic voxel distances.
+    k = np.maximum(1, np.rint(pitch / sp).astype(int)); h = hull[::k[0], ::k[1], ::k[2]]
+    din = distance_transform_edt(h, sampling=(pitch, pitch, pitch)).astype(np.float32)   # inside distance to boundary (world)
+    rvox = din / pitch
+    L = np.zeros(h.shape, np.float32)
+    r = 1
+    while r <= r_max_vox:
+        centres = rvox >= r
+        if not centres.any(): break
+        d = distance_transform_edt(~centres)                                   # voxel units, isotropic now
+        L[d <= r] = 2.0 * r * pitch
+        r += 1 if r < 12 else 2
+    L = L * h
+    for ax in range(3):                                                        # expand back to the original grid
+        if k[ax] > 1: L = np.repeat(L, k[ax], axis=ax)
+    L = L[:hull.shape[0], :hull.shape[1], :hull.shape[2]]
+    if L.shape != hull.shape:                                                  # strided grid shorter than the original: pad by edge
+        L = np.pad(L, [(0, hull.shape[i] - L.shape[i]) for i in range(3)], mode="edge")
+    return L * hull
 
 
 def thickness_at(L, lo, hi, pts, _cache={}):
     """Nearest-voxel lookup of L at world points. Points outside the hull (DR vertices sit a little outside, spikes
     far outside) take the thickness of the NEAREST inside voxel (EDT feature transform), never 0."""
-    key = id(L)
+    key = (id(L), L.shape, float(L.sum()))      # id alone can be recycled after a free (stale field for the next shape)
     if key not in _cache:
         _cache.clear()
         inside = L > 0
@@ -64,8 +83,10 @@ def thickness_subdivide(V, Fa, thick_fn, ratio=1.0, rounds=2, max_v=30000, log=p
     from phase1c_pipeline import dlfl_subdivide_arrays
     V = np.asarray(V, float); Fa = np.asarray(Fa, np.int64); hist = []
     for r in range(rounds):
-        th = thick_fn(V)
-        tf = np.minimum.reduce([th[Fa[:, 0]], th[Fa[:, 1]], th[Fa[:, 2]]])
+        th = thick_fn(V); tc = thick_fn(V[Fa].mean(1))
+        # 2026-10-13: per-face thickness = median of the three vertices and the centroid (was the vertex minimum: on a
+        # coarse, spiky cc3 mesh one vertex that lands next to a thin fin dragged every face around it into refinement)
+        tf = np.median(np.stack([th[Fa[:, 0]], th[Fa[:, 1]], th[Fa[:, 2]], tc]), axis=0)
         e = (np.linalg.norm(V[Fa[:, 0]] - V[Fa[:, 1]], axis=1) + np.linalg.norm(V[Fa[:, 1]] - V[Fa[:, 2]], axis=1)
              + np.linalg.norm(V[Fa[:, 2]] - V[Fa[:, 0]], axis=1)) / 3.0
         sel = np.flatnonzero((tf > 0) & (e > ratio * tf))
