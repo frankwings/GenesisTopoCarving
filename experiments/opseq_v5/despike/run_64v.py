@@ -360,7 +360,9 @@ HULL_INIT_ITERS = int(os.environ.get("HULL_INIT_ITERS", "12"))
 HULL_INIT_SMOOTH = float(os.environ.get("HULL_INIT_SMOOTH", "0.5"))   # uniform-Laplacian blend per iteration (keeps triangles from folding on concave hulls)
 S1_STEPS = int(os.environ.get("S1_STEPS", "800"))
 THICK_SUBDIV = int(os.environ.get("THICK_SUBDIV", "0"))   # 1: thickness-aware DLFL subdivision after cc3 (thin walls; thick_subdiv.py)
-THICK_RATIO = float(os.environ.get("THICK_RATIO", "1.0"))  # subdivide while mean edge > ratio x local hull thickness
+THICK_RATIO = float(os.environ.get("THICK_RATIO", "2.0"))  # subdivide while mean edge > ratio x local hull thickness (2.0 since 2026-10-14: the cc4 round halves the edge once more)
+THICK_RATIO_THIN = float(os.environ.get("THICK_RATIO_THIN", "1.0"))  # ratio for genuinely thin faces (thickness < THICK_THIN): plates need edge <= thickness
+THICK_THIN = float(os.environ.get("THICK_THIN", "0.08"))
 THICK_ROUNDS = int(os.environ.get("THICK_ROUNDS", "2"))
 THICK_MAX_V = int(os.environ.get("THICK_MAX_V", "30000"))
 THICK_STEPS = int(os.environ.get("THICK_STEPS", str(S1_STEPS)))
@@ -477,6 +479,7 @@ def main():
             _tfn = lambda Vn: thick_subdiv.thickness_at(_L, _HF.lo, _HF.hi, Vn)
             v, t, _hist = thick_subdiv.thickness_subdivide(np.asarray(v, np.float64), np.asarray(t, np.int64), _tfn,
                                                            ratio=THICK_RATIO, rounds=THICK_ROUNDS, max_v=THICK_MAX_V,
+                                                           ratio_thin=THICK_RATIO_THIN, thin=THICK_THIN,
                                                            log=lambda m: print(m, flush=True))
             del _HF, _L; torch.cuda.empty_cache()
             if _hist:

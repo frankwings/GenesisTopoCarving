@@ -77,8 +77,11 @@ def equalize_subdivide(V, Fa, target_edge, log=print):
     return np.asarray(V2, float), np.asarray(F2, np.int64), int(len(sel))
 
 
-def thickness_subdivide(V, Fa, thick_fn, ratio=1.0, rounds=2, max_v=30000, log=print):
+def thickness_subdivide(V, Fa, thick_fn, ratio=1.0, rounds=2, max_v=30000, log=print, ratio_thin=None, thin=0.08):
     """Subdivide faces whose mean edge exceeds ratio x local thickness. thick_fn(V) -> per-vertex thickness.
+    ratio_thin / thin (2026-10-14): faces thinner than `thin` (absolute, world units) use ratio_thin instead - a 0.05
+    plate needs edge <= thickness (ratio 1: 81291 lost a thin bar between two holes at ratio 2, 4/5), a 0.18 part
+    only needs the cc4 edge below the wall (ratio 2: 1681123 refined whole at ratio 1 and Stage 3 broke).
     Returns (V, Fa, n_faces_split_per_round)."""
     from phase1c_pipeline import dlfl_subdivide_arrays
     V = np.asarray(V, float); Fa = np.asarray(Fa, np.int64); hist = []
@@ -89,7 +92,9 @@ def thickness_subdivide(V, Fa, thick_fn, ratio=1.0, rounds=2, max_v=30000, log=p
         tf = np.median(np.stack([th[Fa[:, 0]], th[Fa[:, 1]], th[Fa[:, 2]], tc]), axis=0)
         e = (np.linalg.norm(V[Fa[:, 0]] - V[Fa[:, 1]], axis=1) + np.linalg.norm(V[Fa[:, 1]] - V[Fa[:, 2]], axis=1)
              + np.linalg.norm(V[Fa[:, 2]] - V[Fa[:, 0]], axis=1)) / 3.0
-        sel = np.flatnonzero((tf > 0) & (e > ratio * tf))
+        rr = np.full(len(Fa), float(ratio))
+        if ratio_thin is not None: rr[tf < thin] = float(ratio_thin)
+        sel = np.flatnonzero((tf > 0) & (e > rr * tf))
         if len(sel) == 0:
             log(f"[thick] round {r}: no face coarser than {ratio} x local thickness (thick p10/50 = "
                 f"{np.percentile(th[th > 0], 10) if (th > 0).any() else 0:.3f}/{np.median(th[th > 0]) if (th > 0).any() else 0:.3f}, edge med {np.median(e):.3f})"); break

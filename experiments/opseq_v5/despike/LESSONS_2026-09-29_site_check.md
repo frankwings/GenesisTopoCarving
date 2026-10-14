@@ -386,6 +386,59 @@ rocker-arm 0.00584, botijo 0.00580).
 Lesson: a gate rule written as "exactly N" encodes an assumption about the operator (one handle = one tunnel) that
 thin walls break; the audit must first establish that the probe (air loop) is actually in the complement.
 
+## 7m. 2026-10-10..14: thin-wall topology, second pass - what each v7 regression actually was
+
+Starting point: v7.1 batch 20/31 strict; 472203 (3/3 -> 2/3), 1681123 (9/9 -> 7/9), 90275 (11/11 -> 10/11) were right in
+both v6.5 runs and wrong in v7.1. Everything below was established with per-stage audits of the saved meshes and A/B runs,
+not by reading logs.
+
+**1. Stage 5 re-seals thin tunnels; the fix order was wrong.** A tunnel opened at Stage 3 is closed again by the Stage-5
+refine (its air loop pierces the skin again). 5a then removed the handle as "realising nothing" and 5b had to find the
+tunnel from scratch. Fix: a *reopen pass* before the repair (`AIR_ONLY=1`: air-loop drills only, accepted on tunnels
+realised, stop criterion = tunnels realised, not genus), then the repair.
+
+**2. The audit could not see a freshly drilled tube.** After `add_handle` on the entry/exit faces the tunnel IS open
+(genus +1) but the hull's air loop still pierces the surface, because the drilled tube does not sit exactly on the hull
+curve -> rank unchanged -> gate rejects a correct drill. Fix: `reroute_pierced` - a pierced loop is re-routed through
+(hull air minus mesh material) on a local 0.008 grid (shortest path, endpoints snapped to free cells, no dilation: a
+one-triangle tube must stay passable; a diagonal sneak through a thin wall is caught by the crossing re-check). A sealed
+tunnel finds no path and stays pierced. Verified on 472203: sealed -> pierced; drilled -> rerouted, rank 3; after DR ->
+pierced again (which exposed item 3).
+
+**3. The post-drill DR closes a one-triangle tube.** A/B on the same drilled mesh, 400 steps: no guard -> re-sealed
+(2/3); Gu-style throat guard (`HANDLE_GUARD=1`, floor `HANDLE_GUARD_MIN=0.03`) -> kept (3/3); an "air-loop repulsion"
+guard (keep the surface 0.02 from the hull curves) -> failed at every weight, because the tube is not on the hull curve.
+The guard is now on in phase7_multi's post-drill DR; the handle axes ride along every chain stage (`hx`), the refine-stage
+guard stays behind `HANDLE_GUARD_REFINE` (untested). Pitfall: a "skip axes that are already sealed" rule written on the
+soft-min throat skipped EVERY axis (the soft-min is biased negative by log(n)/soft) and silently turned the guard off for a
+whole run; the hard-min radius does not separate fresh tubes from sealed tunnels either (0.016-0.04 both) - the rule is gone.
+
+**4. The v7 thickness field was wrong, and it drove everything.** `local_thickness_grid` (a) propagated each inscribed
+ball only within the Chebyshev box of the next LOWER ladder radius (a 0.19 wall measured 0.07) and (b) ignored that the
+hull grid is nres^3 over the object's bbox - a flat part has 5x finer voxels along its thin axis. So THICK_SUBDIV refined
+almost every model whole (21 of 30 to ~30k vertices at cc3): plates profited, thick parts lost (1681123: Stage 3 on 30k
+vertices opened 9 handles that realised 0-2 tunnels, 2-3.5 h per run). Fix: per-integer-radius EDT on an isotropic
+resampling (exact: covered by a ball of radius >= r iff dist to {din >= r} <= r), per-face thickness = median of the
+three vertices and the centroid (the vertex minimum let one spiky vertex next to a fin drag a whole region). Now
+thickness@GT matches the measured walls (1681123 0.18, 81291 0.051, 113858 0.076).
+
+**5. Ratio.** With the correct field, ratio 1 still refines 0.13-0.2 walls that cc4 handles fine; ratio 2 (edge <= 2x
+thickness at cc3 = cc4 edge <= thickness) leaves thick parts coarse but lost a thin bar on the 0.05 plate (81291 4/5: five
+air loops linked, rank 4 = two tunnels merged into one hole). Two-tier rule, now default: ratio 1 where thickness < 0.08,
+ratio 2 elsewhere. cc3 vertices: 81291 27k, 1417963 21k, 1681123 14k, 113858 11k, 236142 3.4k (all were ~30k).
+
+**6. Variance is real.** 472203 x3 full-chain seeds: 3/3, 3/3, 3/3 (stable after fixes 1-3). 1681123 x3: 6/9, 2/9, 2/9 with
+the wrong field; with THICK_SUBDIV=0 but v7.1 gates 5/9 - so part of its regression is not the refinement; a v6.5-code
+control run on today's caches is queued to separate code from cache drift.
+
+**7. Results so far (ratio 2, corrected field, reopen + reroute + guard):** 472203 3/3, 90275 11/11 (both recovered),
+1417963 11/11, 113858 9/9, 118298 2/2, botijo 5/5, fertility 4/4 unchanged; 81291 4/5 (two-tier rerun queued);
+1120764 8/10; 1681123 2/9 (open).
+
+**Ops.** Linking integral chunked (68 GB temporaries on 30k-point loops OOM-killed hani twice); long runs now live in
+`systemd-run` units with `OOMPolicy=continue` and a `bg_task` watcher for the Discord report; hull-guided completion
+(`face_pair_for_plug`) is the time sink on high-genus parts (10-25 min per query, 15 rounds).
+
 ## 8. Open problems
 
 1. Recalibrate on stage-3 mid-round meshes: geodesic threshold (a true contact at 20) and the handling
