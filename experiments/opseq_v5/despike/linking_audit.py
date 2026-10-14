@@ -127,6 +127,9 @@ def air_loops(shape, cache=None, min_mouth=20, log=print):
         log(f"[air] hull genus {g0}: {len(loops)} loops built, {len(keep)} independent and threaded -> {'OK' if len(keep) == g0 else 'INCOMPLETE'}")
         loops = [loops[k] for k in keep]
     except Exception as e: log(f"[air] hull validation skipped ({e})")
+    # 2026-10-14: a full-resolution (256^3) hull check of the loops was tried and withdrawn - the 128 and 256 carvings have
+    # different topology and neither equals the oracle's closed hull; it dropped real tunnels (43296: 8 -> 2 for GT 5).
+    # The two over-counted models (43296 8 loops / GT 5, 472021 4 / 2) remain a known limit; see LESSONS 7m.
     try: np.savez(memo, **{f"loop{i}": l for i, l in enumerate(loops)})
     except Exception: pass
     return loops

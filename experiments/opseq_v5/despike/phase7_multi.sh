@@ -6,7 +6,7 @@ set -u
 cd /home/kingy/Projects/Genesis/GenesisTopmod/experiments/opseq_v5
 S=$SHAPE; R=${ROUNDS:-6}; cur=$1; LOOP=${LOOP_STEPS:-400}
 export HANDLES_JSON=/tmp/liou_cow_viz/handles_${S}.json; rm -f $HANDLES_JSON /tmp/liou_cow_viz/sitelog_${S}.jsonl /tmp/liou_cow_viz/cow_${S}_${S}_h[0-9]*.npz   # no stale round outputs
-COMMON="MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.5 COLLAPSE_FRAC=${COLLAPSE_FRAC:-0.02} SI_PUSH=0.15 HANDLE_GUARD=${HANDLE_GUARD:-1} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03}"   # 2026-10-12 (LESSONS 7m): throat guard keeps a freshly drilled thin-wall tube open through the 400-step DR (A/B on 472203: off -> re-sealed, guard -> kept)
+COMMON="MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100 COLLAPSE_RATIO=0.5 COLLAPSE_FRAC=${COLLAPSE_FRAC:-0.02} SI_PUSH=0.15 HANDLE_GUARD=${HANDLE_GUARD:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03}"   # 2026-10-14 (LESSONS 7m): throat guard OFF by default - it keeps one tube open in an A/B (472203) but hurts end to end (1681123: 8/9 without, 5-6/9 with; 81291: 5/5 vs 4/5)
 # BATCH_OPEN=1: round 0 opens every site-valid (MEMBRANE/CONTACT) candidate in one go, no DR in between, then ONE
 # Stage-4 loop. Whatever is still missing (genus < g*, e.g. candidates the site check could not classify) is left
 # to the verified one-handle-per-round loop below.
