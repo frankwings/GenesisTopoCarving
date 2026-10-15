@@ -4,7 +4,7 @@ D2 = "/home/kingy/Projects/Genesis/GenesisExp/GenesisDMesh2"; PY = f"{D2}/.venv/
 R = "/home/kingy/Projects/Genesis/GenesisTopmod/experiments/opseq_v5"; OUT = f"{R}/despike/results_genus/dmesh2"
 SM = "/home/kingy/Projects/Genesis/GenesisExp/GenesisHunyuan/.venv/lib/python3.12/site-packages/pymeshlab/tests/sample_meshes"
 shapes = [(s, f"{SM}/{s}.obj") for s in ["kitten", "armadillo", "rockerarm", "threeholes", "fertility"]] + [("botijo", f"{R}/shapes_ext/botijo.obj")]
-shapes += [(f"t10k_{l.split()[0]}", f"{R}/shapes_ext/t10k_{l.split()[0]}.obj") for l in open("/tmp/t10k_batch_list.txt")]
+shapes += [(f"t10k_{l.split()[0]}", f"{R}/shapes_ext/t10k_{l.split()[0]}.obj") for l in open(os.environ.get("DM_LIST", "/home/kingy/run/t10k_list31.txt"))]
 def smi():
     try: return int(subprocess.run(["/usr/lib/wsl/lib/nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True).stdout.split()[0])
     except Exception: return -1
@@ -27,7 +27,7 @@ for name, src in shapes:
     inp = f"{D2}/input/3d/mvrecon/{os.path.splitext(os.path.basename(src))[0]}"
     if not os.path.exists(f"{inp}/mv.npy"): print(f"[D2 {name}] input generation FAILED: {(g.stderr or g.stdout)[-300:]}", flush=True); continue
     before = set(glob.glob(f"{D2}/exp/result/d3/mvrecon/*"))
-    p = subprocess.Popen([PY, "mvrecon_3d.py", "--config", "exp/config/d3/mvrecon_thingi10k.yaml", "--input-path", inp + "/"], cwd=D2, env=env, stdout=open(f"/tmp/d2_{name}.log", "w"), stderr=subprocess.STDOUT)
+    p = subprocess.Popen([PY, "mvrecon_3d.py", "--config", "exp/config/d3/mvrecon_thingi10k.yaml", "--input-path", inp + "/"], cwd=D2, env=env, stdout=open(f"/home/kingy/run/d2_{name}.log", "w"), stderr=subprocess.STDOUT)
     peak = base
     while p.poll() is None:
         peak = max(peak, smi()); time.sleep(5)
