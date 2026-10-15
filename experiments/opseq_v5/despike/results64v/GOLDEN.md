@@ -299,3 +299,10 @@ Gained 472203 (3/3) and 90275 (11/11); lost 118298 (2/2 -> 1/2, 3/3 seeds - the 
 baseline is 8/9 in v6.5 code today; the earlier 9/9 x2 were lucky). Geometry is slightly worse than v7.1 (fewer vertices
 on thick parts) and the batch is 40 % faster; THICK_RATIO 1.5 is the knob if Chamfer matters more than time.
 Per-model: `results_genus/dmesh2/compare_v72.jsonl`, logs `~/run/t10k_v72.log`.
+
+### v7.2 knob check: THICK_RATIO 1.5 (2026-10-15, tag r15)
+Same chain, ratio 1.5 instead of 2 (two-tier floor unchanged): strict 20/31 (v7.2 21), health 31/31 (v7.2 30), genus right 21,
+Chamfer median 0.0107 (v7.2 0.0112, v7.1 0.0108; DMesh++ 0.0095), wins 14:17 (12:19 / 16:14), VolIoU 0.876 (same), wall median
+15.0 min (10.8), total 10.1 h (8.0). Topology swings on the boundary models only (1681123 9/9 here, 90273 and 90275 lose one each).
+Verdict: +4 % Chamfer for +25 % time and -1 strict - ratio 2 stays the default; 1.5 is the knob when geometry matters more.
+Per-model: `results_genus/dmesh2/compare_r15.jsonl`.
