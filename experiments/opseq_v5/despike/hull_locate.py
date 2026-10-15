@@ -377,18 +377,23 @@ def face_pair_for_plug(p, v2w, w2v, V, F, tri_cen, scene, step_w, log=print, hs=
     Vf = np.asarray(V); Ff = np.asarray(F)
     cand = np.where(np.linalg.norm(tri_cen - throat_w, axis=1) <= near_w)[0]
     if len(cand) >= 2:
+        # 2026-10-15: vectorised. The pure-Python double loop was O(|cand|^2) with |cand| in the thousands on a
+        # thickness-refined mesh - minutes per plug, hours per Stage 3 on genus-9 parts (1681123: 201 min, 52 min).
+        if len(cand) > 2000: cand = cand[np.argsort(np.linalg.norm(tri_cen[cand] - throat_w, axis=1))[:2000]]
         n = np.cross(Vf[Ff[cand, 1]] - Vf[Ff[cand, 0]], Vf[Ff[cand, 2]] - Vf[Ff[cand, 0]]); n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
-        best = None
-        for a in range(len(cand)):
-            for b in range(a + 1, len(cand)):
+        C = tri_cen[cand]; cosm = n @ n.T; dm = np.linalg.norm(C[:, None, :] - C[None, :, :], axis=-1)
+        score = dm + 5.0 * (1.0 + cosm); okm = (cosm <= -0.5) & (dm <= cap); okm[np.tril_indices(len(cand))] = False
+        if okm.any():
+            # exclude pairs sharing a vertex (cheap check on the few best candidates only)
+            order = np.argsort(np.where(okm, score, np.inf), axis=None)
+            best = None
+            for flat in order[:200]:
+                a, b = divmod(int(flat), len(cand))
+                if not okm[a, b]: break
                 fa, fb = int(cand[a]), int(cand[b])
                 if set(Ff[fa]) & set(Ff[fb]): continue
-                cosn = float(n[a] @ n[b])
-                if cosn > -0.5: continue
-                d = float(np.linalg.norm(tri_cen[fa] - tri_cen[fb]))
-                if d > cap: continue
-                score = d + 5.0 * (1.0 + cosn)          # close and opposed
-                if best is None or score < best[0]: best = (score, fa, fb)
+                best = (float(score[a, b]), fa, fb); break
+        else: best = None
         if best is not None:
             _, fa, fb = best
             return (fa, fb, tri_cen[fa].copy(), tri_cen[fb].copy(), v2w(throat), v2w(throat)), "contact"
