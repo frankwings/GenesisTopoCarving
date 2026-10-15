@@ -275,3 +275,27 @@ vs 0/30. Wall median 17.8 min, max 201 min (1681123), total 13.2 h. Regressions 
 59229 / 472194 / 43399 / 110950 were already run-to-run unstable in v6.5. Per-model: `results_genus/dmesh2/compare_v71.jsonl`.
 Ops: the batch OOM-killed hani.service twice (68 GB `linking()` temporaries on 30k-vertex loops; chunked now) and was moved
 to a `systemd-run` transient unit with `OOMPolicy=continue`.
+
+## golden v7.2 (2026-10-15) - thin-wall topology second pass (tag `golden-v7.2`)
+
+Changes vs v7.1 (LESSONS 7m): reopen pass before strict repair (`AIR_ONLY` air-loop drills, accepted on tunnels realised);
+pierced air loops re-routed through the surface complement in the audit; local thickness field corrected (exact per-radius
+EDT on an isotropic grid, median per-face rule) with the two-tier ratio (1 below 0.08, 2 elsewhere); post-drill throat guard
+implemented but OFF (ablation: 1681123 8/9 without vs 5-6/9 with; 81291 5/5 vs 4/5; 118298 the other way, 2/2 vs 1/2).
+
+| | v7.1 | **v7.2** | DMesh++ |
+|---|---|---|---|
+| strict-correct + healthy, Thingi10K 31 | 20 | **21** | n/a |
+| health check | 30/31 | 30/31 | n/a |
+| genus right | 21 | **22** | n/a |
+| Chamfer median (compare_dmesh2 metric) | 0.0108 | 0.0112 | **0.0095** |
+| Chamfer wins vs DMesh++ | 16:14 | 12:19 | |
+| volume IoU median | 0.897 | 0.876 | 0.866 |
+| closed manifold | 31/31 | 31/31 | 0/31 |
+| wall median / max / total | 17.8 min / 201 / 13.2 h | **10.8 / 52 / 8.0 h** | 3-10 min |
+| reference shapes (armadillo, kitten, rocker-arm, threeholes, fertility, botijo) | 6/6 | 6/6, CD unchanged | |
+
+Gained 472203 (3/3) and 90275 (11/11); lost 118298 (2/2 -> 1/2, 3/3 seeds - the guard helped there); 1681123 6/9 (its
+baseline is 8/9 in v6.5 code today; the earlier 9/9 x2 were lucky). Geometry is slightly worse than v7.1 (fewer vertices
+on thick parts) and the batch is 40 % faster; THICK_RATIO 1.5 is the knob if Chamfer matters more than time.
+Per-model: `results_genus/dmesh2/compare_v72.jsonl`, logs `~/run/t10k_v72.log`.

@@ -8,7 +8,7 @@ oracle tells the optimizer *how many* tunnels the shape has and *where* they are
 change is executed as a TopMod **DLFL `add_handle`** — so the mesh is a valid orientable 2-manifold,
 watertight, after **every** step, and the genus can never drift silently.
 
-**Status summary (2026-10-08, golden v7.1): [`STATUS_2026-10-08.md`](STATUS_2026-10-08.md)** — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
+**Status summary (2026-10-15, golden v7.2): [`STATUS_2026-10-15.md`](STATUS_2026-10-15.md)** (previous: [2026-10-08](STATUS_2026-10-08.md)) — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
 
 ## The whole algorithm in one strip
 
@@ -317,7 +317,8 @@ Every golden version is a git tag; the measured numbers of every version, v1 to 
 | v6.4 | 2026-09-30 | handle-site validity (winding numbers, geodesic ratio) | 27/27 genus, 75/75 accepted handles consistent with GT |
 | v6.5 | 2026-10-03 | strict surface topology: linking-number audit, `remove_handle`, oracle check | 15/15 strict-correct, fertility 16/16 (v6.4: 6/21) |
 | v7.0 | 2026-10-07 | thickness-aware coarse subdivision (thin walls) | thin-wall wrecks → CD 0.0059-0.0177, 4/4 healthy |
-| v7.1 | 2026-10-07 | audit ignores pierced air loops, rank gate accepts +N | 113858 9/9, 1417963 11/11 |
+| v7.1 | 2026-10-07 | audit ignores pierced air loops, rank gate accepts +N | 113858 9/9, 1417963 11/11; Thingi10K 20/31 strict |
+| v7.2 | 2026-10-15 | reopen pass, re-routed audit, corrected thickness field (two-tier ratio) | Thingi10K 21/31 strict, batch 40 % faster |
 
 Earlier design records: [`LESSONS_2026-08-31.md`](experiments/opseq_v5/despike/LESSONS_2026-08-31.md) (needle
 removal, the first 64-view chain), [`LESSONS_2026-09-02.md`](experiments/opseq_v5/despike/LESSONS_2026-09-02.md)

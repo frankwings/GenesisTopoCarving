@@ -435,6 +435,13 @@ control run on today's caches is queued to separate code from cache drift.
 1417963 11/11, 113858 9/9, 118298 2/2, botijo 5/5, fertility 4/4 unchanged; 81291 4/5 (two-tier rerun queued);
 1120764 8/10; 1681123 2/9 (open).
 
+**8. Ablation and v7.2 (2026-10-14/15).** 1681123: no guard 8/9, guard without reopen 6/9, guard without reroute 6/9, all on 5/9;
+81291: no guard 5/5, all on 5/5, no reopen 4/5, no reroute 4/5. So reopen and reroute are positive, the throat guard is net
+negative end to end (it did save 118298: 2/2 with, 1/2 without, 3 seeds) -> guard off by default. Full batch v7.2:
+21/31 strict (v7.1 20), wall median 10.8 min (17.8), Chamfer median 0.0112 (v7.1 0.0108) - geometry slightly worse with fewer
+vertices on thick parts, topology and time better. A full-resolution (256^3) check of the air loops was tried and withdrawn
+(the two carvings differ in topology; it dropped real tunnels).
+
 **Ops.** Linking integral chunked (68 GB temporaries on 30k-point loops OOM-killed hani twice); long runs now live in
 `systemd-run` units with `OOMPolicy=continue` and a `bg_task` watcher for the Discord report; hull-guided completion
 (`face_pair_for_plug`) is the time sink on high-genus parts (10-25 min per query, 15 rounds).
