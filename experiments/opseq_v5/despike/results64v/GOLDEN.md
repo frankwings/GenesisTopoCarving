@@ -306,3 +306,9 @@ Chamfer median 0.0107 (v7.2 0.0112, v7.1 0.0108; DMesh++ 0.0095), wins 14:17 (12
 15.0 min (10.8), total 10.1 h (8.0). Topology swings on the boundary models only (1681123 9/9 here, 90273 and 90275 lose one each).
 Verdict: +4 % Chamfer for +25 % time and -1 strict - ratio 2 stays the default; 1.5 is the knob when geometry matters more.
 Per-model: `results_genus/dmesh2/compare_r15.jsonl`.
+
+### v7.2 coverage: all 96 oracle-usable Thingi10K models (2026-10-16, tag c65 for the 65 new ones)
+The 65 usable models not in the 31-set (genus 1-9, faces median 22k): strict-correct + healthy **50/65 (77 %)**, healthy 63/65,
+genus right 54/65; by GT genus 1: 21/23, 2: 18/23, 3: 4/6, 4: 1/4, 5: 4/5, 7: 2/2, 9: 0/2. Wall median 10.9 min, max 46, total 16.1 h.
+**All 96 usable models: strict-correct 71/96 (74 %), healthy 93/96 (97 %).** Failures are 1-2 tunnels short (13) or a wreck (2:
+383023, 59301). DMesh++ on the 65 is running for the same-metric Chamfer table (compare_c65.jsonl when done).
