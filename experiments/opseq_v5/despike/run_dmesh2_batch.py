@@ -36,11 +36,12 @@ for name, src in shapes:
     new = sorted(set(glob.glob(f"{D2}/exp/result/d3/mvrecon/*")) - before)
     res = f"{new[-1]}/result/mesh.obj" if new else None
     if p.returncode != 0 or not res or not os.path.exists(res):
-        print(f"[D2 {name}] FAILED rc={p.returncode} after {wall:.0f}s (log /tmp/d2_{name}.log)", flush=True); continue
+        print(f"[D2 {name}] FAILED rc={p.returncode} after {wall:.0f}s (log /home/kingy/run/d2_{name}.log)", flush=True); continue
     V, F = load_obj(res)
     # undo their normalisation ((v - mean) / max_norm * 0.8), then apply ours (scalar centre + 3.2 / extent)
     gv, _ = load_obj(src); mean = gv.mean(0); mx = np.linalg.norm(gv - mean, axis=1).max() + 1e-6
-    Vs = V * mx / 1.0 + mean   # they call the importer with scale=DOMAIN=1.0, not its 0.8 default; mn_, mx_ = float(gv.min()), float(gv.max()); Vn = (Vs - (mn_ + mx_) / 2) * (0.8 * 4.0 / max(mx_ - mn_, 1e-6))
+    Vs = V * mx / 1.0 + mean   # they call the importer with scale=DOMAIN=1.0, not its 0.8 default
+    mn_, mx_ = float(gv.min()), float(gv.max()); Vn = (Vs - (mn_ + mx_) / 2) * (3.2 / max(mx_ - mn_, 1e-6))   # our frame (normalize_to_range)
     np.savez(dst, verts=Vn.astype(np.float32), tris=F.astype(np.int32), wall=wall, src=res, scale_fixed=1)
     print(f"[D2 {name}] ok V={len(V)} F={len(F)} wall {wall:.0f}s | GPU: {base} MiB before, peak {peak} MiB (this job ~{max(peak - base, 0)} MiB)", flush=True)
 print("[D2] ALL DONE", flush=True)
