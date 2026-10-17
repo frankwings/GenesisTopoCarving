@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """sam2_video_masks.py <dataset_dir> [--click-frame 0]: temporally-consistent masks via SAM2 video predictor.
 Anchor = rembg-mask centroid of the click frame (+ a handle click) as positive points; propagate through all frames.
@@ -29,7 +30,10 @@ if caps:
     print(f"[sam2-video] 2 seeds: body {(bx,by)}, cap {cen[c].round().astype(int)}",flush=True)
 else:
     print(f"[sam2-video] 1 seed (no cap region found): body {(bx,by)}",flush=True)
+if os.environ.get("SAM2_SEEDS"):      # 2026-10-17: explicit positive seeds "x,y;x,y;..." on the click frame (mug: body + interior + handle)
+    pts=[[float(a) for a in q.split(",")] for q in os.environ["SAM2_SEEDS"].split(";")]; print(f"[sam2-video] explicit seeds {pts}",flush=True)
 x0,x1,y0,y1=xs.min(),xs.max(),ys.min(),ys.max(); neg=[[x0-15,y0-15],[x1+15,y0-15],[x0-15,y1+15],[x1+15,y1+15]]
+if os.environ.get("SAM2_NEG"): neg+= [[float(a) for a in q.split(",")] for q in os.environ["SAM2_NEG"].split(";")]; print(f"[sam2-video] explicit negatives {neg[4:]}",flush=True)
 P=np.array(pts+neg,np.float32); L=np.array([1]*len(pts)+[0]*len(neg),np.int32)
 with torch.inference_mode(), torch.autocast("cuda",dtype=torch.bfloat16):
     state=pred.init_state(video_path=tmp)

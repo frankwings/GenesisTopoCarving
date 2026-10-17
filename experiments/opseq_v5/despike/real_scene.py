@@ -70,14 +70,17 @@ def _view_matrix_norm(R, t, X, s):
       row 2: -s*R[2]  (z backward, was z forward)
     Translation column: [t_eff[0], -t_eff[1], -t_eff[2]] where t_eff = R@X + t.
     """
-    t_eff = R @ X + t
+    # 2026-10-17: camera coordinates must be in NORMALISED units (divide by s), because the projection's near/far planes
+    # are set in normalised units (0.1 x dist_n .. 15 x dist_n). SfM models have an arbitrary scale (s ~ 1) so this never
+    # showed; with metric ARKit poses (s = 0.078 m/unit) every vertex sat in front of the near plane and nothing rendered.
+    t_eff = (R @ X + t) / s
     M = np.eye(4, dtype=np.float32)
-    M[0, :3] =  s * R[0]
-    M[1, :3] = -s * R[1]
-    M[2, :3] = -s * R[2]
-    M[0, 3]  =  t_eff[0]
-    M[1, 3]  = -t_eff[1]
-    M[2, 3]  = -t_eff[2]
+    M[0, :3] =  R[0]
+    M[1, :3] = -R[1]
+    M[2, :3] = -R[2]
+    M[0, 3] =  t_eff[0]
+    M[1, 3] = -t_eff[1]
+    M[2, 3] = -t_eff[2]
     return M
 
 
@@ -507,6 +510,13 @@ class RealScene:
         if self._hull_hf is not None:
             return self._hull_hf
         from hull_field import carve_hull as _carve_hull, HullField
+        if os.environ.get("LIDAR_HULL"):
+            # 2026-10-17 (v8 depth route): a precomputed occupancy grid in the normalised scene frame (e.g. fused iPhone LiDAR,
+            # real/lidar_hull.py) replaces the silhouette-carved hull: same HullField interface, g* and tunnel sites come from it.
+            z = np.load(os.environ["LIDAR_HULL"]); hull_arr = z["hull"].astype(bool)
+            hf = HullField(z["lo"].astype(np.float32), z["hi"].astype(np.float32), hull_arr, self.device); hf.hull = hull_arr
+            self._hull_hf = hf; print(f"[real_scene] hull from {os.environ['LIDAR_HULL']}: {hull_arr.sum()} voxels nres={hull_arr.shape[0]}", flush=True)
+            return hf
 
         if hires != self.hull_hires:
             fgs_h = []
