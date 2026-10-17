@@ -8,7 +8,7 @@ oracle tells the optimizer *how many* tunnels the shape has and *where* they are
 change is executed as a TopMod **DLFL `add_handle`** — so the mesh is a valid orientable 2-manifold,
 watertight, after **every** step, and the genus can never drift silently.
 
-**Status summary (2026-10-15, golden v7.2): [`STATUS_2026-10-15.md`](STATUS_2026-10-15.md)** (previous: [2026-10-08](STATUS_2026-10-08.md)) — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
+**Status summary (2026-10-17, golden v7.2 on all 96 oracle-usable Thingi10K models): [`STATUS_2026-10-17.md`](STATUS_2026-10-17.md)** (previous: [10-15](STATUS_2026-10-15.md), [10-08](STATUS_2026-10-08.md)) — capability matrix, measured head-to-head with Nicolet / Palfinger / DMesh / DMesh++ / Gu et al., Thingi10K coverage, where we are behind and what closes each gap.
 
 ## The whole algorithm in one strip
 
@@ -189,8 +189,9 @@ the official code on the same 64 views):
 | t10k_1417963 | 0.145 / 0.193 | 11/11 | 11/11 | 0.8 % | 0.987 | 0.0504 → 0.0084 | **0.0071** |
 | t10k_236142 | 0.010 / 0.123 | 2/4 | 2/4 | 4.4 % | 0.981 | 0.0380 → **0.0177** | 0.0357 |
 
-On the full 31-model Thingi10K set (v7.1, same scoring script) we win Chamfer **16:14** against DMesh++ (v6.5: 9:21),
-median 0.0108 vs 0.0095, volume IoU 0.897 vs 0.857 — and return 31/31 closed manifolds against their 0/31. On our six
+On all 96 oracle-usable Thingi10K high-genus models (v7.2, same scoring script): strict-correct topology on **71/96 (74 %)**,
+closed manifolds 96/96 (DMesh++ 0/96), volume IoU 0.880 vs 0.837 — while DMesh++ is clearly ahead on surface distance
+(Chamfer median 0.0096 vs our 0.0126, wins 63:33). On the original 31-model set the Chamfer gap is small (0.0095 vs 0.0112). On our six
 reference shapes we win 6:0 (0.0058–0.0071 vs 0.0062–0.0089). Full per-model figures and renders:
 [`STATUS_2026-10-08.md`](STATUS_2026-10-08.md) §2b.
 

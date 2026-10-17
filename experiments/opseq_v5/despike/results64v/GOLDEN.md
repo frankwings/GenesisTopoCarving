@@ -312,3 +312,17 @@ The 65 usable models not in the 31-set (genus 1-9, faces median 22k): strict-cor
 genus right 54/65; by GT genus 1: 21/23, 2: 18/23, 3: 4/6, 4: 1/4, 5: 4/5, 7: 2/2, 9: 0/2. Wall median 10.9 min, max 46, total 16.1 h.
 **All 96 usable models: strict-correct 71/96 (74 %), healthy 93/96 (97 %).** Failures are 1-2 tunnels short (13) or a wreck (2:
 383023, 59301). DMesh++ on the 65 is running for the same-metric Chamfer table (compare_c65.jsonl when done).
+
+### All 96 vs DMesh++ (2026-10-17, same metric, `compare_c65.jsonl` + `compare_v72.jsonl`)
+| | 31-set | 65 new | **all 96** |
+|---|---|---|---|
+| Chamfer median ours / DMesh++ | 0.0112 / 0.0095 | 0.0130 / 0.0098 | **0.0126 / 0.0096** |
+| Chamfer wins ours : DMesh++ | 12 : 19 | 21 : 44 | **33 : 63** |
+| volume IoU median ours / DMesh++ | 0.876 / 0.866 | 0.882 / 0.831 | **0.880 / 0.837** |
+| closed manifold ours / DMesh++ | 31/31 / 0 | 65/65 / 0 | **96/96 / 0/96** |
+| genus right (ours) | 22 | 54 | **76/96** |
+| strict-correct + healthy (ours) | 21 | 50 | **71/96 (74 %)** |
+| wall median ours / DMesh++ | 10.8 / 5 min | 10.9 / 4.2 min | |
+Honest reading: on the broad set DMesh++ is clearly ahead on surface distance (2:1 wins, median 30 % lower); we are ahead
+on volume IoU, closed manifolds, and are the only one that answers the topology question. Figure:
+`results_genus/fig_thingi10k96_dmesh2_metrics.png`.
