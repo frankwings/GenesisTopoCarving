@@ -133,3 +133,20 @@ track thin/dark clutter-surrounded objects, (c) handle holes fill in the silhoue
 Conclusion: none of the existing iPhone captures are clean enough for silhouette-based topology. ARKit conversion +
 SAM2-video tooling is ready and reusable; a dedicated CLEAN capture (plain background, single object, full 360° at two
 elevations, empty mug) is the path to a real genus-1 result. Tools: real/prep_object.sh, real/carve_object.py.
+
+## 7. iPhone mug (mug_0f1e2c6e4f), 2026-10-17 — first real genus run: the count was right, the tunnel was WRONG
+- Pipeline: StrayScanner -> SAM2 with explicit seeds (`SAM2_SEEDS`/`SAM2_NEG`; the bottle heuristic segmented only the
+  interior) -> ARKit-seeded SIFT BA (`refine_poses_ba.py`: 145/145, 0.67 px; consistency 0.962 -> 0.976) -> LiDAR
+  occupancy as the hull (`lidar_hull.py`) -> chain. `real_scene` view matrix fixed (metric ARKit scale put every vertex
+  before the near plane; ho16 was 0). Result `mug3ba_lid3`: genus 1, watertight, SI 0 %, held-out IoU 0.981 — BUT the
+  handle is solid and the tunnel runs vertically through the cup body.
+- Why: the LiDAR never measures the cup's floor or underside (it stands on the table), so fused occupancy is a tube open
+  at both ends (genus 1 from the tube); the 10 mm handle hole is closed by the 4 mm closing and by the permissive
+  silhouette hull (vote 12, needed against ARKit drift). STRICT audit is off for real data, so nothing flagged it.
+- Depth free-space carving (`depth_carve.py`, voted, margin 20 mm): gets the body right (cavity open at the top, solid
+  bottom -> body genus 0) but carves away the handle and the rim: on this glazed mug the LiDAR reads 7-17 mm BEHIND the
+  silhouette-fitted surface and its native resolution is far coarser than the 256x192 map, so every part thinner than
+  ~2 cm is lost. Restricting carving to free components that reach > 6 mm inside the silhouette hull does not help (the
+  thin parts are connected to the cavity's free space).
+- Next: depth for the cavity/bottom only, silhouettes with a STRICT vote for the handle hole (needs better poses:
+  RoMa v2 / silhouette-based pose refinement), and the linking audit on real data so a wrong-place tunnel is reported.
