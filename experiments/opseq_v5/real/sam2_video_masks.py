@@ -47,7 +47,8 @@ for i,nm in enumerate(names):
     m=out.get(i,np.zeros_like(m0))
     nl,lab,st,_=cv2.connectedComponentsWithStats(m.astype(np.uint8))
     if nl>2: m=lab==(1+np.argmax(st[1:,cv2.CC_STAT_AREA]))
-    ff=m.astype(np.uint8).copy(); cv2.floodFill(ff,None,(0,0),1); m=(m|(ff==0))
+    if os.environ.get("SAM2_FILL_HOLES","0")=="1":   # 2026-10-18: OFF by default - filling holes erased the mug's handle hole in all 145 frames
+        ff=m.astype(np.uint8).copy(); cv2.floodFill(ff,None,(0,0),1); m=(m|(ff==0))
     cv2.imwrite(f"{D}/masks_sam2/{nm}.png",m.astype(np.uint8)*255)
     r=cv2.imread(f"{D}/masks/{nm}.png",0)>127; ious.append((m&r).sum()/max((m|r).sum(),1))
 shutil.rmtree(tmp,ignore_errors=True)
