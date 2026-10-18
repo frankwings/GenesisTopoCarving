@@ -816,6 +816,8 @@ for step in range(STEPS):
         _snapshot(step, verts_t.detach().cpu().numpy().astype(np.float64), Fa)
     if (step + 1) % 100 == 0:
         Vn = verts_t.detach().cpu().numpy().astype(np.float64)
+        if int(os.environ.get("SNAP_NPZ_EVERY", "0")) > 0 and (step + 1) % int(os.environ["SNAP_NPZ_EVERY"]) == 0:   # 2026-10-18 debug: mesh trace
+            np.savez_compressed(f"{OUTD}/cow_{SHAPE}_{TAG}_s{step+1:05d}.npz", verts=Vn, tris=Fa)
         s = si_faces(Vn, Fa)
         print(f"[step {step+1}/{STEPS}] sil={sl.item():.4f} nrm={nl.item():.4f} vlap={vlap.item():.4f} nu={globals().get("_palf_nu_mean", 0.0):.3f} lr={opt.param_groups[0]["lr"]:.5f} flips={nflips_total} collapses={ncollapse_total} splits={nsplit_total} pushes={npush_total} V={len(Fa) and len(Vn)} "
               f"SI={s} ({100*s/len(Fa):.1f}%) folds={100*fold_frac(Vn, Fa):.1f}% "

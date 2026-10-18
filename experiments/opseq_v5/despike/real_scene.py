@@ -159,6 +159,26 @@ class RealScene:
         W_orig, H_orig = int(cam.width), int(cam.height)  # 1080, 1920
 
         all_imgs = sorted(rec.images.values(), key=lambda im: im.name)
+        # 2026-10-18: REAL_EXCLUDE="f_093.jpg,f_119.jpg" drops named frames (views whose silhouette contradicts the rest,
+        # e.g. a pose error that only shows on the non-symmetric part of the object) before the split.
+        _excl = set(x for x in os.environ.get("REAL_EXCLUDE", "").split(",") if x)
+        # 2026-10-18: REAL_VIEWCHECK=1 adds the frames real/view_consistency.py finds contradicting the others (pose error
+        # on an asymmetric part, or a mask that lost a part). Cached per scene; recomputed when masks_sam2 is newer.
+        if os.environ.get("REAL_VIEWCHECK", "0") == "1":
+            _vc_cache = os.path.join(scene_dir, "viewcheck_drop.txt"); _md = os.path.join(scene_dir, "masks_sam2")
+            if os.path.exists(_vc_cache) and os.path.getmtime(_vc_cache) > os.path.getmtime(_md):
+                _vc = [x for x in open(_vc_cache).read().split(",") if x.strip()]
+            else:
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "real"))
+                import view_consistency as _vcm
+                _n, _m, _R, _t, _f, _cx, _cy = _vcm.load_scene(scene_dir)
+                _vc, _ = _vcm.find_inconsistent(_n, _m, _R, _t, _f, _cx, _cy, dev=device)
+                open(_vc_cache, "w").write(",".join(_vc)); torch.cuda.empty_cache()
+            print(f"[real_scene] REAL_VIEWCHECK drops {len(_vc)} frames: {','.join(_vc)}", flush=True)
+            _excl |= set(_vc)
+        if _excl:
+            all_imgs = [im for im in all_imgs if im.name not in _excl]
+            print(f"[real_scene] REAL_EXCLUDE dropped {len(_excl)} frames", flush=True)
         N_reg    = len(all_imgs)   # 145
 
         # ── Held-out / train split ───────────────────────────────────────────

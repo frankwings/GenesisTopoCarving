@@ -150,3 +150,25 @@ elevations, empty mug) is the path to a real genus-1 result. Tools: real/prep_ob
   thin parts are connected to the cavity's free space).
 - Next: depth for the cavity/bottom only, silhouettes with a STRICT vote for the handle hole (needs better poses:
   RoMa v2 / silhouette-based pose refinement), and the linking audit on real data so a wrong-place tunnel is reported.
+
+## 8. iPhone mug, 2026-10-18 — first CORRECT real genus-1 result (tunnel through the handle), textured
+Result `mug3rm_sil1v`: genus 1, one component, watertight, SI 0 %, held-out IoU 0.986, hair 882, 11.8 min. The tunnel
+is the handle hole: removing the handle drops the genus to 0, and morphological closing does not seal it up to r = 16
+voxels (the wrong-place tunnels of earlier runs sealed at r = 4). Four fixes, each verified by an A/B run:
+1. **SAM2 hole filling off** (`sam2_video_masks.py`, `SAM2_FILL_HOLES=0` default): the floodFill erased the handle
+   hole in 145/145 frames. Unfilled: 84/145 frames show the hole; silhouette oracle genus 1 for vote slack 8-16 at
+   every closing radius, located at the handle (slices).
+2. **RoMa v2 poses** (`real/mug3rm`, L4: 145/145 registered, 0.54 px).
+3. **Thin handle refinement** `THICK_THIN=0.14` (Thingi10K default 0.08): the handle strap is ~2.7 mm (2.5 % of the
+   mug), the Stage-1 handle edges were 0.044 > strap thickness 0.033, the two sides of the strap interpenetrated from
+   Stage 1 on, and the Stage-5 untangling cut the strap into 2-3 pieces (traced step by step; THIN_GUARD,
+   HANDLE_GUARD and SI_PUSH=0 all still broke it at the same place). Also `TRAIN_RES=512`.
+4. **Automatic view-consistency check** `REAL_VIEWCHECK=1` (`real/view_consistency.py`, cached in
+   `<scene>/viewcheck_drop.txt`): drops frames that veto a solid chunk every other frame calls material. On mug3rm
+   it drops f_058 (SAM2 lost the rim/inside), f_093, f_119, f_133, f_134 (handle 50-106 px off while the symmetric
+   body fits: a rotation about the mug axis); every other frame scores 0. Without the drop (only 3.): the handle
+   hole gets a membrane, ho16 0.954, hair 36944. `REAL_EXCLUDE=a.jpg,b.jpg` drops frames by hand.
+- Texture: `real/bake_vertex_colors.py` projects the photos onto the (once-subdivided) mesh with a depth test, facing
+  weight and eroded-mask gate; 85 % of vertices seen (median 38 views), the rest (bottom) diffused from neighbours.
+- Still open: the cup is closed at the top (silhouettes cannot see the cavity; needs depth), 0.14 is not yet checked
+  on Thingi10K, one object only.
