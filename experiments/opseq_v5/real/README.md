@@ -172,3 +172,85 @@ voxels (the wrong-place tunnels of earlier runs sealed at r = 4). Four fixes, ea
   weight and eroded-mask gate; 85 % of vertices seen (median 38 views), the rest (bottom) diffused from neighbours.
 - Still open: the cup is closed at the top (silhouettes cannot see the cavity; needs depth), 0.14 is not yet checked
   on Thingi10K, one object only.
+
+## 9. Five iPhone objects, repeated runs, surface priors — 2026-10-19/21 (commits ebf709e, 21f9ade)
+Objects: kettle (handle), mug3rm (handle), wbottle (cap loop ~1 cm), fish, tripod2. Every number below is from the
+go-to chain `HULL_INIT=1 S1_STEPS=400 HULL_VOTE=10 HULL_DEAD=3 TRAIN_RES=512 THICK_THIN=0.14 REAL_VIEWCHECK=1
+S3_ROUNDS=6 S5_ROUNDS=4` on the UNDISTORTED scene (`real/<obj>_ud`, section 9.3), 4 repeated runs per object.
+
+### 9.1 Results (strict: the surface must realise the hull tunnel, `linking_audit --rank`; not just the genus count)
+| object | oracle (plateau r=1..6) | genus | strict tunnels realised | held-out sil IoU | dihedral mean |
+|---|---|---|---|---|---|
+| kettle | stable 1 | 1 | 2/2 runs | 0.974-0.975 | 3.8-6.5 deg |
+| mug3rm | stable 1 | 1 | 4/4 | 0.976 | 7.1-10.3 |
+| wbottle, SIFT poses | stable 1 (ORACLE_NRES=320) | 1 (cap loop) | 4/4 | 0.947 | 8.8 |
+| wbottle, RoMa poses (`wbottler_ud`) | stable 1 (320) | 1 (cap loop) | 4/4 | 0.958 | 8.8 |
+| fish | stable 0 | 0 | 4/4 (consistent) | 0.950 | 11 |
+| tripod2 | stable 0 | 0 | 4/4 (consistent; true genus unverified) | 0.913-0.921 | - |
+The wbottle cap loop (< 1 cm) is realised in 8/8 runs with ORACLE_NRES=320 + THICK_THIN=0.14 + 4 thin-refine rounds
+(THICK_ROUNDS=4): the "holes < 1 cm are out of scope" caveat is withdrawn for this object. RoMa poses beat SIFT on the
+bottle (IoU 0.958 vs 0.947, hair 3400 vs 5800) and are a wash on the kettle (0.983 vs 0.982).
+
+### 9.2 Repeated runs, not seeds: the chain is NOT deterministic
+`SEED` only seeds torch/numpy; the chain draws no random numbers (except the optional normal-loss view subset). Two
+runs of Stage 1 with the same seed and settings differ by up to 0.175 (vertex positions, same topology): GPU float
+accumulation order (nvdiffrast backward / index_add). Through the discrete decisions (drill, collapse, flips) this grows
+into different outcomes, so every real-data claim must be a SUCCESS RATE OVER REPEATED RUNS; a single run is one sample.
+Making the chain deterministic was not attempted (deterministic kernels, slower); repeated runs expose the weak spots.
+
+### 9.3 Bugs found by the repeated runs (all fixed)
+1. **Strict audit silently off on real data.** `linking_audit`/`hull_locate`/the AIR_DRILL read the GT `.obj` for the
+   hull grid frame; on real captures the load failed inside a try/except and the RANK gate, the air-loop drill and the
+   `[STRICT]` audit were skipped without a message. Before the fix the kettle handle membrane got a 1.6-edge drill in
+   one corner (count rescue, dho 0.0003, genus 1 = g*), membrane intact: kettle 1/4 to 2/4 runs, mug 1/3. Fix: the plug
+   cache stores `lo/hi`; real plug cache built from the RealScene hull; `RESCUE_RANK` (default on for REAL_DATA): a
+   handle accepted only by the count rescue must raise the linking rank. After: kettle 4/4, mug 4/4.
+2. **Stage 5b / 6b crumple real surfaces.** The late pass DR rounds and the bare 6b seam refit (no adaptive remesh,
+   no collapse, no PALF Laplacian) take a clean Stage-5 surface (dihedral 18 deg) to 50 deg; Stage 6 repairs it (13.5)
+   and 6b crumples it again (47), Taubin x5 leaves 26. Only runs that enter 5b were hit (synthetic exact silhouettes
+   are fine). Fix: on REAL_DATA 6b runs with the Stage-6 PALF settings (500 steps). After: no crumpled run in 22.
+3. **Lens distortion ignored.** `real_scene` projects with a pinhole; COLMAP's SIMPLE_RADIAL k1 = -0.015..-0.039 moves
+   silhouettes by 2-5 px median, 8-20 px p95 (`real/undistort_scene.py`, scene `<obj>_ud`, camera -> SIMPLE_PINHOLE).
+   Fixed, but it is NOT the cause of the surface ridges (9.4).
+4. Stage-6 refine can diverge on short edges (tripod: ho16 0.959 -> 0.016). `REFINE_GUARD=0.05` keeps the input mesh.
+
+### 9.4 Surface quality: where the large ridges come from and what does NOT fix them
+Silhouette-only real reconstructions carry large oriented ridges (kettle: diagonal, body; mug: fainter). Controls:
+- Exact silhouettes rendered from a smooth mesh through the same 151 cameras (`real/make_syn_scene.py`): NO ridges
+  (fine grain only, Taubin removes it). +2 px random per-frame shift (sub-pixel at 512): still none. +6 px: the whole
+  surface crumples. => the chain is sensitive to few-pixel inter-view silhouette inconsistency, and the real
+  inconsistency is STRUCTURED (oriented ridges, not isotropic noise): on the kettle, frames f_072-081 (background seen
+  through the handle) and the reflective granite edge push the mask out by a few px in a view-dependent way.
+- Not the cause: poses (RoMa vs SIFT: ridges unchanged), lens distortion (undistorted: unchanged), specular reflection
+  alone (the ceramic mug has the same ridges), MoGe normals (clean on all views).
+- Taubin on the final mesh (`ITERS=15`, dihedral 7.1 -> 2.8 deg, ho16 -0.0016) removes the grain, not the ridges.
+  Stronger PALF Laplacian (x2.5, x5) and soft silhouettes (`SIL_BLUR=2/3`) do not remove them either (SIL_BLUR=2 once
+  crumpled the whole surface - one sample).
+- **Metrics**: held-out silhouette IoU does not see surface quality (the crumpled runs have the HIGHEST IoU, 0.987);
+  the median angle to the MoGe normals (`real/check_mono_normal.py`) is better but is also fooled by terraces (9.5).
+  Report both plus the dihedral mean, and look at the renders.
+
+### 9.5 Monocular normals (MoGe-2, `real/mono_normal.py`, `W_NORMAL` in phase4_inloop): NOT a default
+Frame conversion validated (11.7 deg median vs the kettle mesh, every other axis convention >= 37 deg). Loss: masked to
+the eroded silhouette, random 16 views/step, targets > NORMAL_MAXDEG=40 deg off are dropped (mug opening: the photos
+see the concave interior, the silhouette mesh has a cap there; without the truncation the cap is twisted and one run
+broke apart). Applied ONLY in the PALF refine stages (W_NORMAL_REFINE / SIL_BLUR_REFINE; in the DR/5b/6b loops it
+crumpled the surface).
+| object | blur3 + normal 0.03 | neither |
+|---|---|---|
+| kettle | diagonal ridges gone on the front, horizontal terraces below the handle; normal err 8.4 deg | ridges, 11.8 deg |
+| wbottle (RoMa) | horizontal TERRACES on the body, IoU 0.958, normal err 7.1 | smooth, IoU 0.971, 13.0 |
+| fish | terraces, IoU 0.950, 10.4 | smooth, IoU 0.970, 23.5 |
+The terraces come from the normal loss (ablation: blur only = no terraces; normal only = terraces). A terraced surface
+scores a LOWER normal error than the smooth one, so the per-pixel normal target is satisfied by stepping rather than
+by the smooth surface - presumably small view-dependent biases in the targets that a staircase can honour for every
+view at once. Conclusion: per-pixel mono-normal supervision trades the kettle's ridges for terraces elsewhere and costs
+IoU; keep it OFF by default. If revisited: a low-frequency version (smooth both normal fields before comparing) or the
+depth-GRADIENT prior that worked on the dinosaur (section 7: dgrad, 2.7 deg, IoU kept), validated on kettle + bottle +
+fish together, not on one object.
+
+### 9.6 Current real-data defaults
+`real/undistort_scene.py` -> `<obj>_ud`; chain as above; `ORACLE_NRES=320` for small loops; RoMa poses when available;
+`RESCUE_RANK` and the PALF 6b are automatic on REAL_DATA; no W_NORMAL / SIL_BLUR. Known open: large ridges on the
+kettle/mug bodies (9.4), the mug opening is capped (silhouettes cannot see the cavity), tripod true genus unverified,
+Thingi10K 71/96 must be re-run before RESCUE_RANK is enabled for synthetic data.
