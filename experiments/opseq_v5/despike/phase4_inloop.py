@@ -65,6 +65,7 @@ THIN_WALK = int(os.environ.get("THIN_WALK", "24"))           # inward-normal wal
 W_QUAL = float(os.environ.get("W_QUAL", "0.01"))
 W_DIFF = float(os.environ.get("W_DIFF", "1.0"))
 W_NORMAL = float(os.environ.get("W_NORMAL", "0.0"))
+NORMAL_MAXDEG = float(os.environ.get("NORMAL_MAXDEG", "40")); _NCOS = float(np.cos(np.radians(NORMAL_MAXDEG)))
 _nmask_t = None   # real data: per-view mask for the mono-normal loss (None = synthetic full-image L1)
 
 
@@ -72,9 +73,15 @@ def _normal_loss(i, verts_t, faces_t):
     r = run_64v.render_normals(ctx, verts_t, faces_t, mvps[i], views[i])
     if _nmask_t is None:
         return F.l1_loss(r, gtn_t[i])
-    rn = r.norm(dim=-1, keepdim=True)
-    m = (_nmask_t[i] & (rn[..., 0] > 1e-3)).float()
-    return ((r / rn.clamp(min=1e-6) - gtn_t[i]).abs().mean(-1) * m).sum() / m.sum().clamp(min=1.0)
+    rn = r.norm(dim=-1, keepdim=True); rh = r / rn.clamp(min=1e-6)
+    m = _nmask_t[i] & (rn[..., 0] > 1e-3)
+    # 2026-10-20 truncation: pixels whose target disagrees by > NORMAL_MAXDEG are not supervised. Mug: the photos see
+    # INTO the cup (concave interior walls), the silhouette-carved mesh has a cap over the opening there; fitting the cap
+    # to interior-wall normals crumpled the rim (median error 15 deg vs 8 on the kettle, seed 1 broke apart).
+    if NORMAL_MAXDEG < 180:
+        m = m & ((rh.detach() * gtn_t[i]).sum(-1) > _NCOS)
+    m = m.float()
+    return ((rh - gtn_t[i]).abs().mean(-1) * m).sum() / m.sum().clamp(min=1.0)
 ADAM_BETAS = tuple(float(x) for x in os.environ.get("ADAM_BETAS", "0.9,0.999").split(","))   # Palfinger: 0.8,0.8
 PALF_LAP = float(os.environ.get("PALF_LAP", "0.0"))    # Palfinger core/opt.py: grad += PALF_LAP * nu * (v - nbr_mean), nu = |m1/sqrt(m2)| from Adam state (0 = off)
 PALF_CLIP = float(os.environ.get("PALF_CLIP", "0.0"))  # Palfinger: clip grad to |m1| * PALF_CLIP (10); 0 = off

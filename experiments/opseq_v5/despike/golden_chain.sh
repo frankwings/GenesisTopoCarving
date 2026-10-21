@@ -9,7 +9,11 @@ cd /home/kingy/Projects/Genesis/GenesisTopmod/experiments/opseq_v5; ln -sfn $PWD
 NS=/usr/lib/wsl/lib/nvidia-smi; export PATH=$PATH:/usr/lib/wsl/lib
 GLIM=${GUARD_MIB:-28000}
 guard() { for n in $(seq 1 180); do u=$($NS --query-gpu=memory.used --format=csv,noheader,nounits | head -1); [ "$u" -le $GLIM ] && { echo "[guard] GPU used ${u} MiB -> go"; return; }; echo "[guard] GPU used ${u} MiB > $GLIM, waiting 60s ($n/180)"; sleep 60; done; }
-PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200"
+# 2026-10-20: real-data surface priors (mono-normal loss, soft silhouettes) act ONLY in the PALF refine stages 5/6.
+# Exported globally they also ran in the phase7 DR rounds and the 6b refit (no PALF smoothing / remesh) and crumpled
+# mug seed 3 there (stage 5 p4 clean -> 5b late pass p4g crumpled -> 6 clean -> 6b crumpled again).
+unset W_NORMAL SIL_BLUR
+PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200 W_NORMAL=${W_NORMAL_REFINE:-0} SIL_BLUR=${SIL_BLUR_REFINE:-0}"
 export SEED=${SEED:-0}; P=${TAGP:-v4}; [ "$SEED" != "0" ] && P=${P}s${SEED}
 export SNAPSHOT_EVERY=${SNAPSHOT_EVERY:-0} SNAPSHOT_MODE=64
 F4="REFINE_GUARD\|\[adapt\] step.*->\|\[final\]\|\[vram\]\|handle guard\|Traceback\|Error"
@@ -102,8 +106,12 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
       echo "[$S 6s] after strict repair: $(SHAPE=$S python3 despike/linking_audit.py --rank $O/cow_${S}_${T}_p5.npz 2>/dev/null | tail -1) (rank genus n_air tiny)"
     fi
   fi
+  # 2026-10-20: the bare 6b refit (no adaptive remesh / collapse / PALF Laplacian) crumples REAL-data surfaces: dihedral
+  # mean 13.5 -> 47 deg on kettle and mug (inconsistent real silhouettes; synthetic exact ones are fine). On real data the
+  # seam refit uses the stage-6 PALF settings at 500 steps instead. Synthetic chain unchanged (71/96 benchmark untouched).
+  if [ -n "${REAL_DATA:-}" ]; then S6B_ENV="$PALF LAP_MULT=3 STEPS=500"; else S6B_ENV="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} STEPS=500 MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100000 COLLAPSE_FRAC=0 SI_PUSH=0.15 LAP_MULT=1"; fi
   if [ "$(genus_of $O/cow_${S}_${T}_p4.npz)" != "$(genus_of $O/cow_${T}_p4g.npz)" ] || [ "$STRICT_LATE" = "1" ]; then
-    if [ -f $O/cow_${S}_${T}_p5b.npz ]; then echo "[$S 6b] skip"; else guard; env SNAPSHOT_TITLE="Stage 6b [late-handle seam refit]" MODE=64v SHAPE=$S TAG=${T}_p5b HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} STEPS=500 MEMB_EXEMPT=2 FLIP_EVERY=25 COLLAPSE_EVERY=100000 COLLAPSE_FRAC=0 SI_PUSH=0.15 LAP_MULT=1 BASE_NPZ=$O/cow_${S}_${T}_p5.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "$F4" | sed "s/^/[$S 6b] /"; fi
+    if [ -f $O/cow_${S}_${T}_p5b.npz ]; then echo "[$S 6b] skip"; else guard; env SNAPSHOT_TITLE="Stage 6b [late-handle seam refit]" MODE=64v SHAPE=$S TAG=${T}_p5b $S6B_ENV BASE_NPZ=$O/cow_${S}_${T}_p5.npz python3 -u despike/phase4_inloop.py 2>&1 | grep --line-buffered "$F4" | sed "s/^/[$S 6b] /"; fi
     TB_BASE=$O/cow_${S}_${T}_p5b.npz; TB_ENV="ITERS=5"   # fixed x5: AUTO can pick too few iterations to polish the refit
   else
     TB_BASE=$O/cow_${S}_${T}_p5.npz; TB_ENV="AUTO=1"
