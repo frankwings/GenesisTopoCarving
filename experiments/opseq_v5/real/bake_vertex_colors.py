@@ -17,7 +17,7 @@ ap.add_argument("--subdiv", type=int, default=1); ap.add_argument("--exclude", d
 ap.add_argument("--tol", type=float, default=0.02, help="depth-test tolerance (normalised units)")
 a = ap.parse_args()
 sd = os.path.abspath(a.scene)
-rec = pycolmap.Reconstruction(sd + "/sparse/0"); cam = list(rec.cameras.values())[0]; f, cx, cy, _ = cam.params
+rec = pycolmap.Reconstruction(sd + "/sparse/0"); cam = list(rec.cameras.values())[0]; f, cx, cy = cam.params[:3]
 W, H = int(cam.width), int(cam.height)
 ims = sorted(rec.images.values(), key=lambda i: i.name)
 excl = set(x for x in a.exclude.split(",") if x); ims = [im for im in ims if im.name not in excl]

@@ -12,7 +12,7 @@ guard() { for n in $(seq 1 180); do u=$($NS --query-gpu=memory.used --format=csv
 PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200"
 export SEED=${SEED:-0}; P=${TAGP:-v4}; [ "$SEED" != "0" ] && P=${P}s${SEED}
 export SNAPSHOT_EVERY=${SNAPSHOT_EVERY:-0} SNAPSHOT_MODE=64
-F4="\[adapt\] step.*->\|\[final\]\|\[vram\]\|handle guard\|Traceback\|Error"
+F4="REFINE_GUARD\|\[adapt\] step.*->\|\[final\]\|\[vram\]\|handle guard\|Traceback\|Error"
 declare -A GT=([armadillo]=0 [kitten]=1 [rockerarm]=1 [fertility]=4 [threeholes]=3 [botijo]=5 [heptoroid]=22)
 _gt_of() { local g="${GT[$1]:-${GT_GENUS:-?}}"; echo "$g"; }   # GT_GENUS: ground-truth genus of a shape that is not in the table (benchmark runs)
 genus_of() { python3 -c "
@@ -33,9 +33,9 @@ chain() { S=$1; T0=$(date +%s); T=${S}_$P
   echo "##### $S: golden v3 chain ($P, seed $SEED), GT genus $(_gt_of $S)"
   # Oracle check (2026-10-04): the hull genus must settle (three consecutive closing radii agree and equal g*). If it
   # does not (thin walls / concavities no silhouette sees: heptoroid 40/31/44/45/31/5), every later decision would
-  # rest on a wrong oracle and the mesh ends up destroyed - refuse instead. ORACLE_CHECK=0 forces the run; skipped for
-  # REAL_DATA and when the genus is given (GT_MODE).
-  if [ "${ORACLE_CHECK:-1}" = "1" ] && [ -z "${REAL_DATA:-}" ] && [ -z "${GT_MODE:-}" ] && [ ! -f $O/cow_${S}_${T}_auto.npz ]; then
+  # rest on a wrong oracle and the mesh ends up destroyed - refuse instead. ORACLE_CHECK=0 forces the run; skipped when
+  # the genus is given (GT_MODE). 2026-10-19: also on for REAL_DATA (chain hull, oracle_check.check_real).
+  if [ "${ORACLE_CHECK:-1}" = "1" ] && [ -z "${GT_MODE:-}" ] && [ ! -f $O/cow_${S}_${T}_auto.npz ]; then
     OC=$(SHAPE=$S python3 despike/oracle_check.py 2>/dev/null | tail -1); echo "[$S 0] oracle check: $OC"
     case "$OC" in unstable*) echo "[RESULT] $S $P: REFUSED - oracle unstable (hull genus per closing radius 1..6: ${OC#unstable }); shape is outside the method's range (thin walls / silhouette-invisible concavities). ORACLE_CHECK=0 to force."; echo "[$S] wall $(( $(date +%s) - T0 ))s"; return 0;; esac
   fi

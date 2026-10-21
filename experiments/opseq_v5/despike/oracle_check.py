@@ -37,6 +37,23 @@ def check(shape):
     plateau = next((vals[i] for i in range(len(vals) - 2) if vals[i] == vals[i + 1] == vals[i + 2]), None)
     return plateau is not None and plateau == gstar, gstar, vals
 
+def check_real(scene_dir):
+    """2026-10-19: same plateau test on a real capture's chain hull (training masks, HULL_VOTE, nres ORACLE_NRES).
+    Without it the chain ran on wbottle (hull genus 36/18/3 at slack 2/4/8) and reported a sub-voxel genus 1."""
+    import nvdiffrast.torch as dr
+    from real_scene import load_real_scene
+    from hull_field import hull_genus
+    sc = load_real_scene(scene_dir); ctx = dr.RasterizeCudaContext()
+    nres = int(os.environ.get("ORACLE_NRES", "256"))
+    hull = np.asarray(sc.hull(ctx, nres=nres, hires=int(os.environ.get("HULL_HIRES", "512"))).hull)
+    gstar, _ = hull_genus(hull)
+    _, per = hull_genus(hull, radii=(1, 2, 3, 4, 5, 6)); vals = list(per.values())
+    plateau = next((vals[i] for i in range(len(vals) - 2) if vals[i] == vals[i + 1] == vals[i + 2]), None)
+    return plateau is not None and plateau == gstar, gstar, vals
+
 if __name__ == "__main__":
+    if os.environ.get("REAL_DATA"):
+        ok, gp, per = check_real(os.environ["REAL_DATA"])
+        print(f"stable {gp} {per}" if ok else f"unstable {per}"); sys.exit(0)
     ok, gp, per = check(os.environ.get("SHAPE", "fertility"))
     print(f"stable {gp} {per}" if ok else f"unstable {per}")

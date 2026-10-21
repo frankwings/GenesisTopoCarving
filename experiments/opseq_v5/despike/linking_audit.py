@@ -19,17 +19,48 @@ HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); sys
 S26 = np.ones((3, 3, 3), bool)
 OUTD = os.environ.get("OUTD", "/tmp/liou_cow_viz")
 
-def grid_frame(shape, res=128, pad=24):
-    """voxel -> world map of the hull_locate grid (GT bbox +-0.02, same as build_vote_hull / find_tunnel_by_hull)."""
+def hull_lohi(shape, cache=None):
+    """World bbox of the hull_locate grid. 2026-10-20: read from the plug cache when it records it (hull_locate now
+    saves lo/hi): on REAL data there is no GT .obj, and every caller below used to crash on load_obj - the RANK gate,
+    the AIR_DRILL and the strict audit were silently unavailable on all real captures (kettle seed 1 kept a fake
+    membrane handle that the rank gate would have rejected). Synthetic fallback: GT bbox +-0.02 as before."""
+    bz = (cache or f"{OUTD}/hull_plugs_{shape}_128.json") + ".blocks.npz"
+    if os.path.exists(bz):
+        z = np.load(bz)
+        if "lo" in z.files: return z["lo"].astype(float), z["hi"].astype(float)
+    if os.environ.get("REAL_DATA"):
+        raise RuntimeError(f"real data: no hull grid frame for {shape} (plug cache missing or without lo/hi)")
     from eval_local_refine import load_obj, normalize_to_range, BUNNY_PATH
     gv, _ = load_obj(os.path.join(os.path.dirname(BUNNY_PATH), f"{shape}.obj")); g = normalize_to_range(gv)
-    lo, hi = g.min(0) - 0.02, g.max(0) + 0.02
+    return g.min(0) - 0.02, g.max(0) + 0.02
+
+def grid_frame(shape, res=128, pad=24):
+    """voxel -> world map of the hull_locate grid (same frame as find_tunnel_by_hull)."""
+    lo, hi = hull_lohi(shape)
     return lambda v: lo + (np.asarray(v, float) - pad) / (res - 1) * (hi - lo)
+
+def _ensure_plugs_real(shape, cache, res=128, pad=24, log=print):
+    """Real data: carve the plug cache from the RealScene hull (same pipeline as hull_locate)."""
+    import nvdiffrast.torch as dr
+    from real_scene import load_real_scene
+    from hull_locate import clean_hull, downsample, genus_solid, find_plugs
+    sc = load_real_scene(os.environ["REAL_DATA"]); HF = sc.hull(dr.RasterizeCudaContext(), hires=int(os.environ.get("HULL_HIRES", "512")))
+    lo, hi = np.asarray(HF.lo, float), np.asarray(HF.hi, float)
+    hs = np.pad(downsample(clean_hull(np.asarray(HF.hull).astype(bool)), res), pad); g0 = genus_solid(hs)
+    log(f"[air] {shape} (real): hull genus {g0}, locating plugs")
+    plugs = find_plugs(hs, g0, log=lambda m: None) if g0 > 0 else []
+    v2w = lambda v: lo + (np.asarray(v, float) - pad) / (res - 1) * (hi - lo)
+    for p in plugs: p["throat_w"] = v2w(p["throat_vox"]).tolist(); p["cen_w"] = v2w(p["cen_vox"]).tolist(); p["key"] = ["hull", [round(float(x), 3) for x in p["throat_w"]]]
+    np.savez_compressed(cache + ".blocks.npz", hs=hs, lo=lo, hi=hi, **{f"plug{i}": p["block_vox"] for i, p in enumerate(plugs)})
+    json.dump([{k: v for k, v in p.items() if k != "block_vox"} for p in plugs], open(cache, "w"))
 
 def ensure_plugs(shape, cache, res=128, pad=24, log=print):
     """Build the plug cache (same format as hull_locate.find_tunnel_by_hull) when no chain has written it yet:
     carve the voting hull from the GT silhouettes (GPU), downsample, run the closing ladder."""
-    if os.path.exists(cache): return
+    if os.path.exists(cache):
+        if not os.environ.get("REAL_DATA") or "lo" in np.load(cache + ".blocks.npz").files: return
+        log(f"[air] {shape}: plug cache predates lo/hi -> rebuilding")   # real data: frame unknown for old caches
+    if os.environ.get("REAL_DATA"): return _ensure_plugs_real(shape, cache, res, pad, log)
     import torch, nvdiffrast.torch as dr
     from eval_local_refine import load_obj, normalize_to_range, BUNNY_PATH
     from hull_field import build_vote_hull
@@ -213,9 +244,7 @@ def reroute_pierced(V, F, AIR, shape=None, step=0.02, h=0.008, margin=0.12, log=
     cache = f"{OUTD}/hull_plugs_{shape}_128.json.blocks.npz"
     if not os.path.exists(cache): return list(AIR), [False] * len(AIR)
     hs = np.load(cache)["hs"].astype(bool); res, pad = 128, 24
-    from eval_local_refine import load_obj, normalize_to_range, BUNNY_PATH
-    gv, _ = load_obj(os.path.join(os.path.dirname(BUNNY_PATH), f"{shape}.obj")); g = normalize_to_range(gv)
-    lo_h, hi_h = g.min(0) - 0.02, g.max(0) + 0.02
+    lo_h, hi_h = hull_lohi(shape)
     def hull_solid(P):
         v = np.rint(pad + (P - lo_h) / (hi_h - lo_h) * (res - 1)).astype(int); v = np.clip(v, 0, np.array(hs.shape) - 1)
         return hs[v[:, 0], v[:, 1], v[:, 2]]

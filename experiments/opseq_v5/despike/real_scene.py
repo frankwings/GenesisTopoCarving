@@ -155,7 +155,8 @@ class RealScene:
         # ── Load COLMAP ──────────────────────────────────────────────────────
         rec = pycolmap.Reconstruction(os.path.join(scene_dir, "sparse/0"))
         cam = list(rec.cameras.values())[0]
-        f, cx_full, cy_full, _k = cam.params   # SIMPLE_RADIAL; k ignored (|k|<0.02)
+        f, cx_full, cy_full = cam.params[:3]   # pinhole projection. SIMPLE_RADIAL k1 is NOT modelled: k1~-0.022 shifts silhouettes 3 px median, 12 px p95 on iPhone frames -> use real/undistort_scene.py first (2026-10-19)
+        if len(cam.params) > 3 and abs(cam.params[3]) > 1e-4: print(f"[real_scene] WARNING: lens distortion k1={cam.params[3]:.4f} ignored - run real/undistort_scene.py", flush=True)
         W_orig, H_orig = int(cam.width), int(cam.height)  # 1080, 1920
 
         all_imgs = sorted(rec.images.values(), key=lambda im: im.name)
@@ -412,6 +413,28 @@ class RealScene:
             except Exception:
                 return np.zeros((res, res), dtype=np.float32)
 
+        normal_dir = os.path.join(scene_dir, "normals_moge")
+        _has_normal = os.path.isdir(normal_dir)
+        # MoGe camera frame (OpenCV x right, y down, z fwd) -> OpenGL camera frame of view_w2c (x right, y up, z back);
+        # flip_x mirrors image x relative to the GL x axis. Validated by real/check_mono_normal.py.
+        _ncv = np.array([-1.0 if best_flip_x else 1.0, -1.0, -1.0], np.float32)
+
+        def _load_normal_nv(name, x0i, y0i):
+            """MoGe normal map, crop/resize/flip like masks, in the GL camera frame. [res,res,3]; 0 where missing."""
+            if not _has_normal:
+                return np.zeros((res, res, 3), np.float32)
+            try:
+                nm = np.load(os.path.join(normal_dir, os.path.splitext(name)[0] + ".npy")).astype(np.float32)
+                h_img, w_img = nm.shape[:2]
+                full = np.zeros((S_px, S_px, 3), np.float32)
+                y1 = min(y0i + S_px, h_img); x1 = min(x0i + S_px, w_img)
+                full[:y1 - y0i, :x1 - x0i] = nm[y0i:y1, x0i:x1]
+                r3 = np.stack([np.array(Image.fromarray(full[..., c]).resize((res, res), Image.BILINEAR)) for c in range(3)], -1)
+                r3 = r3 / np.maximum(np.linalg.norm(r3, axis=-1, keepdims=True), 1e-6)
+                return _flip_v(r3 * _ncv).astype(np.float32)
+            except Exception:
+                return np.zeros((res, res, 3), np.float32)
+
         def _load_photo_nv(name, x0i, y0i):
             """Load photo, crop/resize exactly like masks → float32 [res,res,3] in [0,1]."""
             stem = os.path.splitext(name)[0]
@@ -430,7 +453,7 @@ class RealScene:
         # Training
         train_mvps_list, train_views_list, train_gt_list = [], [], []
         train_masks_hires_list = []; train_valid_list = []
-        train_proj_list = []; train_rgb_list = []; train_mono_list = []
+        train_proj_list = []; train_rgb_list = []; train_mono_list = []; train_nrm_list = []
         for idx in train_idx:
             im  = all_imgs[idx]
             mvp_i, view_i, (x0i, y0i), proj_i = _build_mvp_view(im, idx)
@@ -442,6 +465,7 @@ class RealScene:
             train_masks_hires_list.append(_mask_to_hires_nv(all_masks_pil[idx], x0i, y0i, hull_hires))
             train_rgb_list.append(_load_photo_nv(im.name, x0i, y0i))
             train_mono_list.append(_load_mono_nv(im.name, x0i, y0i))
+            train_nrm_list.append(_load_normal_nv(im.name, x0i, y0i))
 
         # Held-out
         hold_mvps_list, hold_gt_list = [], []
@@ -474,6 +498,8 @@ class RealScene:
         self.ho_rgb      = np.stack(hold_rgb_list)           # [16,res,res,3] float32 [0,1]
         self.ho_mono     = np.stack(hold_mono_list)          # [16,res,res] float32 inv-depth
         self._has_depth  = _has_depth
+        self.nrm         = np.stack(train_nrm_list)          # [64,res,res,3] float32 mono normals, GL camera frame (0 if no cache)
+        self._has_normal = _has_normal
         self._hull_hf    = None
         self._hull_pre   = hull_pre
         # Sanity: proj @ view_w2c == mvps (float32 rounding may give ~1e-6)

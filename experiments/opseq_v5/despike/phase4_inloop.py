@@ -65,6 +65,16 @@ THIN_WALK = int(os.environ.get("THIN_WALK", "24"))           # inward-normal wal
 W_QUAL = float(os.environ.get("W_QUAL", "0.01"))
 W_DIFF = float(os.environ.get("W_DIFF", "1.0"))
 W_NORMAL = float(os.environ.get("W_NORMAL", "0.0"))
+_nmask_t = None   # real data: per-view mask for the mono-normal loss (None = synthetic full-image L1)
+
+
+def _normal_loss(i, verts_t, faces_t):
+    r = run_64v.render_normals(ctx, verts_t, faces_t, mvps[i], views[i])
+    if _nmask_t is None:
+        return F.l1_loss(r, gtn_t[i])
+    rn = r.norm(dim=-1, keepdim=True)
+    m = (_nmask_t[i] & (rn[..., 0] > 1e-3)).float()
+    return ((r / rn.clamp(min=1e-6) - gtn_t[i]).abs().mean(-1) * m).sum() / m.sum().clamp(min=1.0)
 ADAM_BETAS = tuple(float(x) for x in os.environ.get("ADAM_BETAS", "0.9,0.999").split(","))   # Palfinger: 0.8,0.8
 PALF_LAP = float(os.environ.get("PALF_LAP", "0.0"))    # Palfinger core/opt.py: grad += PALF_LAP * nu * (v - nbr_mean), nu = |m1/sqrt(m2)| from Adam state (0 = off)
 PALF_CLIP = float(os.environ.get("PALF_CLIP", "0.0"))  # Palfinger: clip grad to |m1| * PALF_CLIP (10); 0 = off
@@ -273,6 +283,17 @@ if MODE == "64v":
         PX_SIZE = 2.0 * max_r / run_64v.TRAIN_RES
         W_DIFF = 0.0; W_DEPTH = 0.0
         gtn_t = None
+        if W_NORMAL > 0 and getattr(_real_scene, "_has_normal", False):
+            # 2026-10-19: monocular (MoGe-2) normal targets for real data, GL camera frame (real/check_mono_normal.py:
+            # 11.7 deg median vs the kettle mesh, every other axis convention >= 37 deg). Masked to the eroded GT
+            # silhouette: the rim belongs to the silhouette loss, and MoGe is least reliable there.
+            from scipy.ndimage import binary_erosion as _bero
+            gtn_t = [torch.from_numpy(_real_scene.nrm[i]).to(DEVICE) for i in range(len(_real_scene.nrm))]
+            _nmask_t = [torch.from_numpy(_bero(_real_scene.gt[i] < 128, iterations=int(os.environ.get("NORMAL_ERODE", "3")))
+                                         & (np.linalg.norm(_real_scene.nrm[i], axis=-1) > 0.5)).to(DEVICE) for i in range(len(_real_scene.nrm))]
+            print(f"[p4] REAL_DATA normals: W_NORMAL={W_NORMAL} mono targets on {len(gtn_t)} views", flush=True)
+        elif W_NORMAL > 0:
+            print("[p4] REAL_DATA: W_NORMAL>0 but no normals_moge/ cache -> W_NORMAL=0", flush=True); W_NORMAL = 0.0
         p1b.heldout_exam = _real_scene.heldout_exam
         heldout_exam = _real_scene.heldout_exam   # rebind the name imported at module top
         print(f"[p4] REAL_DATA={REAL_DATA}: forced W_DEPTH=0 W_DIFF=0", flush=True)
@@ -539,9 +560,10 @@ for step in range(STEPS):
         # W_NORMAL stays per-view (off in the golden chain — does not affect acceptance)
         if W_NORMAL > 0:
             nl = torch.tensor(0.0, device=DEVICE)
-            for i in range(NV):
-                nl = nl + F.l1_loss(run_64v.render_normals(ctx, verts_t, faces_t, mvps[i], views[i]), gtn_t[i])
-            nl = nl / NV
+            _nsel = torch.randperm(NV)[:int(os.environ.get("NORMAL_NV", "16"))].tolist()   # random view subset per step (cost)
+            for i in _nsel:
+                nl = nl + _normal_loss(i, verts_t, faces_t)
+            nl = nl / len(_nsel)
     else:
         # ── Legacy per-view loop ──────────────────────────────────────────
         sl = dl = fl = torch.tensor(0.0, device=DEVICE)
@@ -550,7 +572,7 @@ for step in range(STEPS):
                 sil, ndc_z, fg, diff = render_sdd(ctx, verts_t, faces_t, mvps[i], views[i])
                 fl = fl + F.l1_loss(diff, gtdf_t[i])
                 if W_NORMAL > 0:
-                    nl = nl + F.l1_loss(run_64v.render_normals(ctx, verts_t, faces_t, mvps[i], views[i]), gtn_t[i])
+                    nl = nl + _normal_loss(i, verts_t, faces_t)
             else:
                 sil, ndc_z, fg = render_sil_and_depth(ctx, verts_t, faces_t, mvps[i])
             sl = sl + F.l1_loss(sil[0], targets[i])
@@ -829,6 +851,13 @@ wt, nbad = check_watertight(Fa); assert wt, nbad
 hof, sif = report("final", V, Fa)
 print(f"[p4] ho16 {ho0:.4f} -> {hof:.4f} ({(hof-ho0)*100:+.2f}) | SI {100*si0/len(Fa):.1f}% -> "
       f"{100*sif/len(Fa):.1f}% | total flips={nflips_total}", flush=True)
+# 2026-10-19 divergence guard: tripod2 Stage 6 (LAP x3, TRAIN_RES 512, thin legs) went 0.959 -> 0.016 held-out IoU
+# (sil loss up from step 100, SI 0.3 % -> 56 %, the mesh flew off). A refine that loses this much is a divergence, not a
+# trade-off: keep the input mesh. REFINE_GUARD=0 disables.
+_rg = float(os.environ.get("REFINE_GUARD", "0.05"))
+if _rg > 0 and ho0 - hof > _rg:
+    print(f"[p4] REFINE_GUARD: ho16 dropped {ho0:.4f} -> {hof:.4f} (> {_rg}) -> diverged, keeping the input mesh", flush=True)
+    V, Fa = np.asarray(z["verts"], np.float64), np.asarray(z["tris"] if "tris" in z.files else z["faces"])
 np.savez_compressed(f"{OUTD}/cow_{SHAPE}_{TAG}.npz", verts=V, tris=Fa)
 _bx0 = BASE_NPZ + ".haxes.npz"
 if os.path.exists(_bx0):

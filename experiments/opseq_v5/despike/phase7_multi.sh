@@ -62,7 +62,11 @@ for r in $(seq 1 $R); do
   # --- RANK gate (2026-10-01, strict topology): genus is only a count. The surface must REALISE one more hull tunnel:
   # rank of the linking matrix (mesh handle loops x hull tunnel air loops, linking_audit.py) must go up (by 1, or by 2 when one drill unseals two tunnels)
   # after the handle + DR. A redundant tube, a hidden micro-handle or a join that encloses no tunnel leaves it unchanged.
-  if [ "${RANK_GATE:-0}" = "1" ]; then
+  # RESCUE_RANK (2026-10-20): a handle accepted ONLY by the count rescue (no image gain) must realise a hull tunnel.
+  # Kettle seed 1: the rescue kept a 1.6-edge drill in a corner of the handle membrane (dho 0.0003, hair 23750 -> 23918);
+  # genus 1 = g*, but the membrane stayed. Default on for real data only (synthetic baselines unchanged until re-benchmarked).
+  _rr=${RESCUE_RANK:-$([ -n "${REAL_DATA:-}" ] && echo 1 || echo 0)}
+  if [ "${RANK_GATE:-0}" = "1" ] || { [ "$_rr" = "1" ] && echo "${jev:-}" | grep -q "rescue-membrane"; }; then
     rk_prev=$(SHAPE=$S python3 despike/linking_audit.py --rank $prev_cur 2>/dev/null | tail -1); rk_new=$(SHAPE=$S python3 despike/linking_audit.py --rank /tmp/liou_cow_viz/cow_${S}_${S}_h${r}b.npz 2>/dev/null | tail -1)
     rp=$(echo "$rk_prev" | cut -d' ' -f1); rn=$(echo "$rk_new" | cut -d' ' -f1)
     if [ "${rp:--1}" -ge 0 ] 2>/dev/null && [ "${rn:--1}" -ge 0 ] 2>/dev/null; then

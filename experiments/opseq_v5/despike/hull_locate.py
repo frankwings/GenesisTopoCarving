@@ -416,6 +416,7 @@ def find_tunnel_by_hull(V, F, HF_in, prev_handles=(), g_target=None, res=128, ca
             plugs = json.load(open(cache)); bz = np.load(cache + ".blocks.npz")
             for i, p in enumerate(plugs): p["block_vox"] = bz[f"plug{i}"]
             hs = bz["hs"]
+            if "lo" in bz.files: lo, hi = bz["lo"].astype(float), bz["hi"].astype(float)   # grid frame of the CACHED hull (real data: HF.lo/hi depend on extra_pts)
             _g0c = genus_solid(hs)
             if len(plugs) < _g0c:   # stale/truncated cache: older code cached only n_needed<g0 plugs -> recompute the full set
                 log(f"[p7] hull: cache has {len(plugs)} plug(s) < hull genus {_g0c} -> stale, recomputing full set")
@@ -436,7 +437,7 @@ def find_tunnel_by_hull(V, F, HF_in, prev_handles=(), g_target=None, res=128, ca
             p["key"] = ["hull", [round(float(x), 3) for x in p["throat_w"]]]
         if cache:
             try:
-                np.savez_compressed(cache + ".blocks.npz", hs=hs, **{f"plug{i}": p["block_vox"] for i, p in enumerate(plugs)})
+                np.savez_compressed(cache + ".blocks.npz", hs=hs, lo=lo, hi=hi, **{f"plug{i}": p["block_vox"] for i, p in enumerate(plugs)})
                 json.dump([{k: v for k, v in p.items() if k != "block_vox"} for p in plugs], open(cache, "w")); log(f"[p7] hull: cached to {cache}")
             except Exception as e: log(f"[p7] hull: cache write failed ({e})")
         log(f"[p7] hull plugs: {len(plugs)} found (R ladder) target={n_needed} in {time.time()-t0:.0f}s")
