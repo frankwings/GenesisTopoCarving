@@ -12,8 +12,8 @@ guard() { for n in $(seq 1 180); do u=$($NS --query-gpu=memory.used --format=csv
 # 2026-10-20: real-data surface priors (mono-normal loss, soft silhouettes) act ONLY in the PALF refine stages 5/6.
 # Exported globally they also ran in the phase7 DR rounds and the 6b refit (no PALF smoothing / remesh) and crumpled
 # mug seed 3 there (stage 5 p4 clean -> 5b late pass p4g crumpled -> 6 clean -> 6b crumpled again).
-unset W_NORMAL SIL_BLUR
-PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200 W_NORMAL=${W_NORMAL_REFINE:-0} SIL_BLUR=${SIL_BLUR_REFINE:-0}"
+unset W_NORMAL SIL_BLUR W_DGRAD
+PALF="HANDLE_GUARD=${HANDLE_GUARD_REFINE:-0} HANDLE_GUARD_MIN=${HANDLE_GUARD_MIN:-0.03} ADAM_BETAS=0.8,0.8 PALF_LAP=0.02 PALF_CLIP=10 LR_EDGE=0.3 ADAPT_REMESH=1 ADAPT_MODE=velocity ADAPT_NU_GAIN=0.2 ADAPT_LMIN_PX=${ADAPT_LMIN_PX:-1.3} ADAPT_MAX_F=100000 ADAPT_SI_GATE=0.3 FLIP_EVERY=25 COLLAPSE_EVERY=50 COLLAPSE_RATIO=0.4 SI_PUSH=0.15 STEPS=1200 W_NORMAL=${W_NORMAL_REFINE:-0} SIL_BLUR=${SIL_BLUR_REFINE:-0} W_DGRAD=${W_DGRAD_REFINE:-0}"
 export SEED=${SEED:-0}; P=${TAGP:-v4}; [ "$SEED" != "0" ] && P=${P}s${SEED}
 export SNAPSHOT_EVERY=${SNAPSHOT_EVERY:-0} SNAPSHOT_MODE=64
 F4="REFINE_GUARD\|\[adapt\] step.*->\|\[final\]\|\[vram\]\|handle guard\|Traceback\|Error"

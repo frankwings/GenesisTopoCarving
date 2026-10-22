@@ -69,6 +69,39 @@ NORMAL_MAXDEG = float(os.environ.get("NORMAL_MAXDEG", "40")); _NCOS = float(np.c
 _nmask_t = None   # real data: per-view mask for the mono-normal loss (None = synthetic full-image L1)
 
 
+W_DGRAD = float(os.environ.get("W_DGRAD", "0.0"))        # real data: mono-depth GRADIENT prior (README section 7 dgrad, 2026-10-21)
+DGRAD_L1 = float(os.environ.get("DGRAD_L1", "0.0"))      # absolute (scale-shift aligned) term; 0 = gradient only (the absolute term bent the dino's global shape)
+DGRAD_NV = int(os.environ.get("DGRAD_NV", "16"))
+_mono_t = None; _dmask_t = None
+
+
+def _dgrad_loss(i, verts_t, faces_t):
+    """Scale-shift-invariant inverse-depth prior from a cached Depth Anything V2 map, gradient-matching at 2 scales
+    (phase8_joint.depth_mono_loss_fn, ported to the PALF loop). Rendered q = 1/z_cam on the eroded silhouette interior."""
+    pos = run_64v.transform_to_clip(verts_t, mvps[i])
+    rast, _ = dr.rasterize(ctx, pos, faces_t, resolution=[run_64v.TRAIN_RES, run_64v.TRAIN_RES])
+    vh = torch.cat([verts_t, torch.ones(verts_t.shape[0], 1, device=DEVICE)], -1)
+    z_cam = -(views[i] @ vh.T)[2]
+    q_img, _ = dr.interpolate((1.0 / z_cam.clamp(min=1e-6))[None, :, None].contiguous(), rast, faces_t)
+    q = q_img[0, :, :, 0]; m = _mono_t[i]
+    mask = (rast[0, :, :, 3] > 0) & _dmask_t[i]
+    if int(mask.sum()) < 500: return torch.tensor(0.0, device=DEVICE)
+    with torch.no_grad():
+        qm, mm = q.detach()[mask], m[mask]; mc, qc = mm - mm.mean(), qm - qm.mean()
+        sc = (mc * qc).sum() / (mc * mc).sum().clamp(min=1e-8); b = qm.mean() - sc * mm.mean()
+    if float(sc) <= 0: return torch.tensor(0.0, device=DEVICE)
+    res = (sc * m + b - q) * mask.float(); dq = q.detach()[mask].abs().mean().clamp(min=1e-8)
+    def _g(rm, mk):
+        gx = (rm[:, 1:] - rm[:, :-1]).abs(); gy = (rm[1:, :] - rm[:-1, :]).abs()
+        mx = (mk[:, 1:] & mk[:, :-1]).float(); my = (mk[1:, :] & mk[:-1, :]).float()
+        return ((gx * mx).sum() + (gy * my).sum()) / (mx.sum() + my.sum()).clamp(min=1) / dq
+    gl = _g(res, mask)
+    rd = F.avg_pool2d(res[None, None], 2)[0, 0]; md = (-F.max_pool2d(-mask.float()[None, None], 2)[0, 0]) > 0.5
+    gl = gl + _g(rd, md)
+    l1 = res[mask].abs().mean() / dq if DGRAD_L1 > 0 else 0.0
+    return gl + DGRAD_L1 * l1
+
+
 def _normal_loss(i, verts_t, faces_t):
     r = run_64v.render_normals(ctx, verts_t, faces_t, mvps[i], views[i])
     if _nmask_t is None:
@@ -301,6 +334,13 @@ if MODE == "64v":
             print(f"[p4] REAL_DATA normals: W_NORMAL={W_NORMAL} mono targets on {len(gtn_t)} views", flush=True)
         elif W_NORMAL > 0:
             print("[p4] REAL_DATA: W_NORMAL>0 but no normals_moge/ cache -> W_NORMAL=0", flush=True); W_NORMAL = 0.0
+        if W_DGRAD > 0 and getattr(_real_scene, "_has_depth", False):
+            from scipy.ndimage import binary_erosion as _bero2
+            _mono_t = [torch.from_numpy(_real_scene.mono[i]).to(DEVICE) for i in range(len(_real_scene.mono))]
+            _dmask_t = [torch.from_numpy(_bero2(_real_scene.gt[i] < 128, iterations=int(os.environ.get("NORMAL_ERODE", "3")))).to(DEVICE) for i in range(len(_real_scene.gt))]
+            print(f"[p4] REAL_DATA mono-depth gradient prior: W_DGRAD={W_DGRAD} DGRAD_L1={DGRAD_L1} on {len(_mono_t)} views", flush=True)
+        elif W_DGRAD > 0:
+            print("[p4] REAL_DATA: W_DGRAD>0 but no depth_da2/ cache -> W_DGRAD=0", flush=True); W_DGRAD = 0.0
         p1b.heldout_exam = _real_scene.heldout_exam
         heldout_exam = _real_scene.heldout_exam   # rebind the name imported at module top
         print(f"[p4] REAL_DATA={REAL_DATA}: forced W_DEPTH=0 W_DIFF=0", flush=True)
@@ -557,7 +597,7 @@ for step in range(STEPS):
     if _AL_T is not None and (step % AIRLOOP_EVERY == 0 or verts_t.shape[0] != _al_n):
         _airloop_refresh(verts_t.detach().cpu().numpy()); _al_n = verts_t.shape[0]
     me = mean_edge_of(verts_t.detach(), src, dst)
-    nl = torch.tensor(0.0, device=DEVICE)
+    nl = torch.tensor(0.0, device=DEVICE); dgl = torch.tensor(0.0, device=DEVICE)
     if MODE == "64v" and RENDER_BATCH:
         # ── Batched 64-view render (single rasterize call) ────────────────
         sil_b, ndc_b, fg_b, diff_b = run_64v.render_sdd_batch(ctx, verts_t, faces_t, mvps, views)
@@ -571,6 +611,9 @@ for step in range(STEPS):
             for i in _nsel:
                 nl = nl + _normal_loss(i, verts_t, faces_t)
             nl = nl / len(_nsel)
+        if W_DGRAD > 0 and _mono_t is not None:
+            _dsel = torch.randperm(NV)[:DGRAD_NV].tolist()
+            dgl = sum(_dgrad_loss(i, verts_t, faces_t) for i in _dsel) / len(_dsel)
     else:
         # ── Legacy per-view loop ──────────────────────────────────────────
         sl = dl = fl = torch.tensor(0.0, device=DEVICE)
@@ -597,7 +640,7 @@ for step in range(STEPS):
         vlap = (_w * _lap2).mean() / (me.detach() ** 2 + 1e-12)
     else:
         vlap = torch.tensor(0.0, device=DEVICE)
-    loss = (sl + W_DEPTH * dl + W_DIFF * fl + W_NORMAL * nl + W_VLAP * vlap
+    loss = (sl + W_DEPTH * dl + W_DIFF * fl + W_NORMAL * nl + W_DGRAD * dgl + W_VLAP * vlap
             + W_LAP * LAP_MULT * laplacian_loss(verts_t, faces_t)
             + W_EDGE * edge_length_loss(verts_t, faces_t)
             + W_QUAL * _qual_loss(verts_t, faces_t)
