@@ -254,3 +254,25 @@ fish together, not on one object.
 `RESCUE_RANK` and the PALF 6b are automatic on REAL_DATA; no W_NORMAL / SIL_BLUR. Known open: large ridges on the
 kettle/mug bodies (9.4), the mug opening is capped (silhouettes cannot see the cavity), tripod true genus unverified,
 Thingi10K 71/96 must be re-run before RESCUE_RANK is enabled for synthetic data.
+
+### 9.7 Monocular DEPTH-GRADIENT prior (`W_DGRAD_REFINE`, commit 22c3c79) — the surface fix that holds on every object
+Depth Anything V2 inverse depth (`real/mono_depth.py`, `<scene>/depth_da2/`), per view scale-shift aligned to the
+rendered 1/z (closed form, detached), gradient matching at 2 scales (section 7 dgrad, ported from phase8_joint into the
+PALF refine stages 5/6 only), eroded-silhouette mask, 16 random views per step, NO absolute term (DGRAD_L1=0). Checked
+before use: rendered 1/z vs DA2 correlation median 0.92 over the kettle views, scale > 0 in 64/64.
+| object (W_DGRAD_REFINE=0.3 vs no prior) | held-out IoU | dihedral mean, each run | normals err | topology |
+|---|---|---|---|---|
+| kettle | 0.982 -> 0.982 | 6.9 -> 3.2 / 6.7 / 6.4 | 11.8 -> 10.4 | handle 3/3 |
+| wbottle (RoMa) | 0.971 -> 0.970 | 10.5 -> 4.0 / 7.7 / 7.6 | 13.0 -> 11.7 | cap loop 2/3 (see below) |
+| fish | 0.970 -> 0.969 | 10.1 -> 9.3 / 10.4 / 10.5 | 23.5 -> 19.9 | genus 0, 3/3 |
+| mug3rm | 0.976 -> **0.985** | 7-10 -> 6.8 / 7.7 / 6.9 | 15 -> 28 (*) | handle 3/3 |
+W=0.1 goes the same way at half the effect. Renders: the kettle's diagonal ridges are gone and the spout side has NO
+terraces (the per-pixel normal loss produced terraces there), the bottle body and the mug body are the cleanest of
+all runs. Why it works where the normal loss did not: the gradient term penalises a step between neighbouring pixels
+directly, so a staircase cannot "honour" slightly biased per-view targets; and the scale-shift alignment absorbs the
+mono model's global bias. (*) mug: the 28 deg is entirely the top-down views (40-58 deg per view, the rest 13-24 as
+before): MoGe sees the cup's interior walls, the silhouette mesh has a flat cap there (known boundary, section 8).
+- wbottle run 1 (seed 1) is a STRICT failure caught by the audit (genus 1, tunnels realised 0/1, tiny loop): the stage-3
+  drill split the ~1 cm cap strap instead of opening the loop; the stage-4 mesh is already rank 0, i.e. before the
+  refine stages where the prior acts - the chain's non-determinism on the smallest loop, not the prior (7 bottle runs
+  so far: 6 realised). Six more bottle runs (3 default, 3 with NORMAL_ERODE=6) pending for the rate.
