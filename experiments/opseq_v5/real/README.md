@@ -251,7 +251,7 @@ fish together, not on one object.
 
 ### 9.6 Current real-data defaults
 `real/undistort_scene.py` -> `<obj>_ud`; chain as above; `ORACLE_NRES=320` for small loops; RoMa poses when available;
-`RESCUE_RANK` and the PALF 6b are automatic on REAL_DATA; no W_NORMAL / SIL_BLUR. Known open: large ridges on the
+`RESCUE_RANK`, the PALF 6b and `W_DGRAD_REFINE=0.3` (9.7) are automatic on REAL_DATA; no W_NORMAL / SIL_BLUR. Known open: large ridges on the
 kettle/mug bodies (9.4), the mug opening is capped (silhouettes cannot see the cavity), tripod true genus unverified,
 Thingi10K 71/96 must be re-run before RESCUE_RANK is enabled for synthetic data.
 
@@ -276,3 +276,6 @@ before): MoGe sees the cup's interior walls, the silhouette mesh has a flat cap 
   drill split the ~1 cm cap strap instead of opening the loop; the stage-4 mesh is already rank 0, i.e. before the
   refine stages where the prior acts - the chain's non-determinism on the smallest loop, not the prior (7 bottle runs
   so far: 6 realised). Six more bottle runs (3 default, 3 with NORMAL_ERODE=6) pending for the rate.
+- Bottle rate with the prior, 9 runs: 8/9 strict (the one failure above, stage 3). `NORMAL_ERODE=6` (3/3, dihedral
+  3.9-7.7) is not distinguishable from the default 3 (3/3 in the same batch, 4.4-8.6); default kept. 2026-10-22:
+  `W_DGRAD_REFINE=0.3` is the real-data default (golden_chain.sh).
