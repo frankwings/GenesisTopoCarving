@@ -75,8 +75,13 @@ def render(V, F, az, el=18, Rcam=3.2):
 
 def label(t, V, F):
     if V is None: return f"{t}: n/a"
-    tp = rb.topo(V, F); g = tp["genus"] if tp["closed"] and tp["comps"] == 1 else ("open" if not tp["closed"] else f"{tp['comps']} comps")
-    return f"{t}: {'genus ' + str(g) if isinstance(g, int) else g}"
+    tp = rb.topo(V, F)
+    if tp["closed"] and tp["comps"] == 1: return f"{t}: genus {tp['genus']}"
+    if tp["comps"] > 1:   # multi-component output: report the largest component, as in the tables
+        import trimesh as _tm
+        big = max(_tm.Trimesh(V, F, process=False).split(only_watertight=False), key=lambda q: len(q.faces)); tb = rb.topo(np.asarray(big.vertices, float), np.asarray(big.faces, np.int64))
+        return f"{t}: {tp['comps']} comps, largest " + (f"genus {tb['genus']}" if tb["closed"] else "open")
+    return f"{t}: open"
 
 for shape in (sys.argv[1:] or ["kitten", "fertility", "t10k_91610", "t10k_1158268", "t10k_399567", "t10k_135074"]):
     gv, gf = load_obj(rb.gt_path(shape)); Vg = rb.norm(gv); gf = np.asarray(gf, np.int64)

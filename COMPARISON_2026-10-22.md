@@ -85,13 +85,13 @@ taking the largest component; t10k_118307 needed a re-run (CUDA illegal access, 
 ## 6. Side-by-side turntable GIFs — `despike/results_genus/baselines_gifs/<shape>.gif` (GT | ours | SAP | RsR | NeuS)
 | shape (GT genus) | ours | SAP | RsR | NeuS | why |
 |---|---|---|---|---|---|
-| kitten (1) | genus 1 | genus 1 | open | NeuS: see GIF label | easy case |
-| fertility (4) | genus 4 | 100 components | genus 4, closed | see GIF label | RsR's best case: dense samples of a smooth scan |
-| t10k_91610 (2) | genus 2 | genus 13 | open | see GIF label | SAP spurious handles inside a thin plate — invisible in the render, caught only by the topology audit |
-| t10k_1158268 (2) | genus 0 (ours fails) | genus 16 | open | see GIF label | hard model, reported as is |
-| t10k_399567 (3) | genus 3 | genus 0 | open | see GIF label | SAP smooths the tunnels shut |
-| t10k_135074 (1) | genus 1 | 830 components | open | see GIF label | thin parts shatter in SAP |
-Script: `despike/make_baseline_gifs.py` (re-runs RsR to keep its mesh; all panels in the compare frame, GT normalisation).
+| kitten (1) | genus 1 | genus 1 | open | 7 comps, largest genus 9 | easy case for all but RsR; NeuS adds 8 micro-handles |
+| fertility (4) | genus 4 | 100 comps (largest genus 2) | genus 4, closed | 4 comps, largest genus 5 | RsR's best case: dense samples of a smooth scan |
+| t10k_91610 (2) | genus 2 | genus 13 | open | 23 comps, largest genus 18 | SAP spurious handles inside a thin plate — invisible in the render, caught only by the topology audit |
+| t10k_1158268 (2) | genus 0 (ours fails) | genus 16 | 11 comps, open | 43 comps, largest genus 73 | hard model, reported as is |
+| t10k_399567 (3) | genus 3 | genus 0 | open | 5 comps, largest genus 17 | SAP smooths the tunnels shut |
+| t10k_135074 (1) | genus 1 | 830 comps, largest open | open | 16 comps, largest genus 20 | thin parts shatter in SAP |
+Script: `despike/make_baseline_gifs.py` (re-runs RsR to keep its mesh; all panels in the compare frame, GT normalisation; multi-component outputs are labelled by their largest component).
 
 ## 7. Method-table position (extends STATUS_2026-10-17 §1)
 | | RsR | SAP | DMesh++ | NeuS | ours |
