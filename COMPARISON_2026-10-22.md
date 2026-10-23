@@ -11,7 +11,7 @@ Ours = golden v7.2 (STATUS_2026-10-17), 64 silhouette views. Per-model data: `de
 - RsR（TOG 2024，组合式）：表面最准（Chamfer 0.0071、IoU 0.990）但只有 3/96 闭合、3/96 严格 genus 正确；给它真值 genus 也无用。
 - SAP（NeurIPS 2021，可微 Poisson）：76/96 闭合、35/96 严格正确；错法是假把手（最多 +14）、把孔抹平、细结构碎裂。
 - DMesh++（ICCV 2025）：0/96 闭合。
-- NeuS（NeurIPS 2021，神经 SDF）：在跑，明早补。
+- NeuS（NeurIPS 2021，神经 SDF，10k 步）：整网格 0/96 闭合（碎片），最大连通块 95/96 闭合但 genus 正确只有 34/96，60/96 偏多（微小假把手）；Chamfer 0.0120、IoU 0.882，和我们相当。
 - 我们：96/96 闭合、71/96 严格正确；表面距离最差（0.0126）。结论：别的方法保表面不保拓扑，或封口但 genus 不受控；我们用表面精度换来经过验证的 genus。
 
 ## 1. Summary table
@@ -21,7 +21,7 @@ Ours = golden v7.2 (STATUS_2026-10-17), 64 silhouette views. Per-model data: `de
 | RsR — Surface Reconstruction Using Rotation Systems | TOG 2024 (SIGGRAPH Asia) | combinatorial: spanning tree + explicit handle edges, n-path rule | 60k blue-noise points + exact normals | 3/96 | 61/96 | **3/96** (10/96 after hole filling) | **0.0071** | **0.990** | 4 s |
 | SAP — Shape As Points | NeurIPS 2021 | emerges: differentiable Poisson level set | same points | 76/96 | 53/96 | **35/96 (36 %)** | 0.0079 | 0.971 | 175 s |
 | DMesh++ | ICCV 2025 | emerges: point existence probabilities | 64 views | 0/96 | — | — | 0.0096 | 0.837 | 4–16 min |
-| NeuS (instant-nsr-pl) | NeurIPS 2021 | emerges: neural SDF level set | 64 RGB views + masks | running | | | | | ~10 min |
+| NeuS (instant-nsr-pl, 10k steps) | NeurIPS 2021 | emerges: neural SDF level set | 64 RGB views + masks | 0/96 whole mesh (floaters); largest component 95/96 | 20/96 | **0/96** whole; largest component right genus **34/96 (35 %)**, too high 60/96 | 0.0120 | 0.882 | ~10 min |
 | **Topo-Carving (ours, v7.2)** | — | **discovered from the silhouette hull, one verified add_handle per tunnel** | 64 silhouettes | **96/96** | 96/96 | **71/96 (74 %)** | 0.0126 | 0.880 | 5–12 min |
 
 Reading. Every published method reproduces the surface more accurately than we do — they keep the input points
@@ -75,27 +75,32 @@ torch 2.7.1 + CUDA 12.8 (C++17, `-lcuda` from the CUDA stubs); the analytic SDF 
 memory access in tcnn double-backward) → `grad_type=finite_difference` (an option of the same code); full-image
 validation renders crashed → `ray_chunk=512`. Scorer `despike/score_neus.py` maps the mesh into the compare frame.
 Smoke (kitten, 1500 steps): a complete kitten with the tail tunnel, IoU 0.898 before the bounding-radius fix.
-Numbers: to be added when the batch finishes (`despike/results_genus/neus/neus_syn.jsonl`).
+Result (96 models, `despike/results_genus/neus/neus_syn.jsonl`): whole mesh closed 0/96 — every output carries open
+floaters at the bounding box (median 6 components, 43/96 with ≥ 9); the LARGEST component is closed in 95/96 and has
+the right genus in 34/96 (35 %), too many handles in 60/96 (micro-handles of the hash-grid SDF under marching cubes at
+512; 1/96 too few). Chamfer 0.0120, volume IoU 0.882 — the same surface accuracy as ours with Lambertian shading as
+extra input. Caveat: 10 000 steps instead of the config's 20 000 (time), one run per model, no post-cleanup beyond
+taking the largest component; t10k_118307 needed a re-run (CUDA illegal access, library issue).
 
 ## 6. Side-by-side turntable GIFs — `despike/results_genus/baselines_gifs/<shape>.gif` (GT | ours | SAP | RsR | NeuS)
-| shape (GT genus) | ours | SAP | RsR | why |
-|---|---|---|---|---|
-| kitten (1) | genus 1 | genus 1 | open | easy case |
-| fertility (4) | genus 4 | 100 components | genus 4, closed | RsR's best case: dense samples of a smooth scan |
-| t10k_91610 (2) | genus 2 | genus 13 | open | SAP spurious handles inside a thin plate — invisible in the render, caught only by the topology audit |
-| t10k_1158268 (2) | genus 0 (ours fails) | genus 16 | open | hard model, reported as is |
-| t10k_399567 (3) | genus 3 | genus 0 | open | SAP smooths the tunnels shut |
-| t10k_135074 (1) | genus 1 | 830 components | open | thin parts shatter in SAP |
+| shape (GT genus) | ours | SAP | RsR | NeuS | why |
+|---|---|---|---|---|---|
+| kitten (1) | genus 1 | genus 1 | open | NeuS: see GIF label | easy case |
+| fertility (4) | genus 4 | 100 components | genus 4, closed | see GIF label | RsR's best case: dense samples of a smooth scan |
+| t10k_91610 (2) | genus 2 | genus 13 | open | see GIF label | SAP spurious handles inside a thin plate — invisible in the render, caught only by the topology audit |
+| t10k_1158268 (2) | genus 0 (ours fails) | genus 16 | open | see GIF label | hard model, reported as is |
+| t10k_399567 (3) | genus 3 | genus 0 | open | see GIF label | SAP smooths the tunnels shut |
+| t10k_135074 (1) | genus 1 | 830 components | open | see GIF label | thin parts shatter in SAP |
 Script: `despike/make_baseline_gifs.py` (re-runs RsR to keep its mesh; all panels in the compare frame, GT normalisation).
 
 ## 7. Method-table position (extends STATUS_2026-10-17 §1)
 | | RsR | SAP | DMesh++ | NeuS | ours |
 |---|---|---|---|---|---|
 | topology | combinatorial, explicit handles | emerges (Poisson) | emerges (points) | emerges (SDF) | **discovered + verified** |
-| closed output | no | yes | no | yes (after cleanup) | **yes, by construction** |
+| closed output | no | yes | no | largest component yes, floaters | **yes, by construction** |
 | genus control | prior or n rule, no closure | none | none | none | **oracle g\*, one audited handle at a time** |
 | knows when not to answer | no | no | no | no | **refuses unstable hulls** |
-| surface accuracy | best | very good | good | expected good | worst of the five |
+| surface accuracy | best | very good | good | same as ours | worst of the five (tied with NeuS) |
 
 ## 8. Real captures: NeuS vs ours (2026-10-23)
 NeuS (instant-nsr-pl, `neus-colmap.yaml`, masks on, img_downscale 2, 20 000 steps, finite-difference SDF gradient,
