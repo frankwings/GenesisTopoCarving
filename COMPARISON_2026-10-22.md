@@ -96,3 +96,21 @@ Script: `despike/make_baseline_gifs.py` (re-runs RsR to keep its mesh; all panel
 | genus control | prior or n rule, no closure | none | none | none | **oracle g\*, one audited handle at a time** |
 | knows when not to answer | no | no | no | no | **refuses unstable hulls** |
 | surface accuracy | best | very good | good | expected good | worst of the five |
+
+## 8. Real captures: NeuS vs ours (preliminary, 2026-10-22 evening)
+NeuS (instant-nsr-pl, `neus-colmap.yaml`, masks on, img_downscale 2, 20 000 steps, finite-difference SDF gradient,
+MC 512) on our undistorted iPhone scenes with the same COLMAP/RoMa poses and SAM2 masks; mesh mapped back into our
+normalised frame (`score_neus.py --real`, alignment residual < 1e-6) and scored with our held-out silhouette IoU +
+strict audit. Ours = golden v8.0 defaults, repeated runs (real/README §9).
+| object | NeuS: closed / components | NeuS held-out IoU | NeuS tunnel audit | ours: strict / IoU |
+|---|---|---|---|---|
+| kettle | open / 99 | 0.760 | 0/1 (open mesh) | 3/3 runs / 0.982 |
+| mug3rm | open / 44 | 0.974 | 0/1 | 3/3 / 0.985 |
+| wbottle (RoMa) | open / 35 | 0.520 | 0/1 | 8/9 / 0.970 |
+| fish | running | | | 3/3 / 0.969 |
+Renders (`~/run/neus_vs_ours_real.png`, `~/run/neus_real_<obj>_turn.mp4`): the handle / cap loop is visibly there in
+all three NeuS meshes, but the stainless kettle body is carved open (specular), the mug body is dented by its print,
+and every mesh is cut at the bottom: all three touch z = −0.6, the config's `model.radius` (16 % of the bottle's and
+mug's vertices lie beyond 0.58) — i.e. part of the "open / many components" is the bounding box, not the method.
+A rerun with `model.radius=0.9` is queued (tag `full09`); the table will be replaced by it. Fair reading so far:
+image-based neural SDF gets the big tunnels but not a closed audited surface on these captures.
