@@ -106,10 +106,10 @@ NeuS's pose normalisation (its 'ground' up vector is a random RANSAC plane, so t
 then our held-out silhouette IoU + strict linking audit on the largest component. Ours = golden v8.0, repeated runs.
 | object (GT genus) | NeuS components | NeuS largest comp. | NeuS held-out IoU | NeuS tunnel audit | alignment correction | ours strict / IoU |
 |---|---|---|---|---|---|---|
-| kettle (1) | 15 | closed, **genus 4** | 0.983 | 1/1 realised + 3 spurious handles | scale 0.96, shift 0.13 | 3/3 / 0.982 |
-| mug3rm (1) | 6 | open | 0.989 | 0/1 | 1.00, 0.001 | 3/3 / 0.985 |
-| wbottle (1, RoMa) | 13 | open (2242 boundary edges) | 0.898 | 0/1 | 1.09, 0.08 | 8/9 / 0.970 |
-| fish (0) | 7 | closed, **genus 9** | 0.963 | — (GT 0) | 1.03, 0.33 | 3/3 / 0.969 |
+| kettle (1) | 15 | closed, **genus 4** | 0.983 | 1/1 realised + 3 spurious handles | rot 0.1°, scale 0.96, shift 0.13 | 3/3 / 0.982 |
+| mug3rm (1) | 6 | open | 0.988 | 0/1 | 0.2°, 1.00, 0.002 | 3/3 / 0.985 |
+| wbottle (1, RoMa) | 13 | open (2242 boundary edges) | 0.898 | 0/1 | 0.3°, 1.09, 0.08 | 8/9 / 0.970 |
+| fish (0) | 7 | closed, **genus 9** | 0.959 | — (GT 0) | 0.3°, 1.03, 0.33 | 3/3 / 0.969 |
 Strict (closed, single component, right genus): NeuS 0/4, ours 17/18 runs. Silhouette accuracy is on par (NeuS equals
 or beats us on kettle and mug), so the difference is entirely topology: every NeuS mesh is a soup of 6–15 components,
 and the two that close carry 3 and 9 spurious handles (specular stainless body, printed mug, fish base). Renders:

@@ -103,7 +103,7 @@ def score_real(scene, mesh_path):
     big0 = largest(trimesh.Trimesh(Vn, np.asarray(m.faces, np.int64), process=False))
     V0 = torch.tensor(np.asarray(big0.vertices), dtype=torch.float32, device=dev); F0 = torch.tensor(np.asarray(big0.faces), dtype=torch.int32, device=dev)
     c0 = V0.mean(0, keepdim=True); gt = torch.tensor((sc.gt < 128).astype(np.float32), device=dev)
-    rv_ = torch.full((3,), 1e-4, device=dev, requires_grad=True)   # not exactly 0: the axis-angle map has zero gradient at r = 0; tv_ = torch.zeros(3, device=dev, requires_grad=True); ls_ = torch.zeros(1, device=dev, requires_grad=True)
+    rv_ = torch.full((3,), 1e-4, device=dev, requires_grad=True); tv_ = torch.zeros(3, device=dev, requires_grad=True); ls_ = torch.zeros(1, device=dev, requires_grad=True)   # rv_ not exactly 0: the axis-angle map has zero gradient at r = 0
     opt = torch.optim.Adam([rv_, tv_, ls_], lr=5e-3)
     def rotm(r):
         th = r.norm() + 1e-9; k = r / th; K = torch.tensor([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]], device=dev)
