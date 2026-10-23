@@ -97,20 +97,20 @@ Script: `despike/make_baseline_gifs.py` (re-runs RsR to keep its mesh; all panel
 | knows when not to answer | no | no | no | no | **refuses unstable hulls** |
 | surface accuracy | best | very good | good | expected good | worst of the five |
 
-## 8. Real captures: NeuS vs ours (preliminary, 2026-10-22 evening)
+## 8. Real captures: NeuS vs ours (2026-10-23)
 NeuS (instant-nsr-pl, `neus-colmap.yaml`, masks on, img_downscale 2, 20 000 steps, finite-difference SDF gradient,
-MC 512) on our undistorted iPhone scenes with the same COLMAP/RoMa poses and SAM2 masks; mesh mapped back into our
-normalised frame (`score_neus.py --real`, alignment residual < 1e-6) and scored with our held-out silhouette IoU +
-strict audit. Ours = golden v8.0 defaults, repeated runs (real/README §9).
-| object | NeuS: closed / components | NeuS held-out IoU | NeuS tunnel audit | ours: strict / IoU |
-|---|---|---|---|---|
-| kettle | open / 99 | 0.760 | 0/1 (open mesh) | 3/3 runs / 0.982 |
-| mug3rm | open / 44 | 0.974 | 0/1 | 3/3 / 0.985 |
-| wbottle (RoMa) | open / 35 | 0.520 | 0/1 | 8/9 / 0.970 |
-| fish | running | | | 3/3 / 0.969 |
-Renders (`~/run/neus_vs_ours_real.png`, `~/run/neus_real_<obj>_turn.mp4`): the handle / cap loop is visibly there in
-all three NeuS meshes, but the stainless kettle body is carved open (specular), the mug body is dented by its print,
-and every mesh is cut at the bottom: all three touch z = −0.6, the config's `model.radius` (16 % of the bottle's and
-mug's vertices lie beyond 0.58) — i.e. part of the "open / many components" is the bounding box, not the method.
-A rerun with `model.radius=0.9` is queued (tag `full09`); the table will be replaced by it. Fair reading so far:
-image-based neural SDF gets the big tunnels but not a closed audited surface on these captures.
+MC 512, **`model.radius=0.9`** — the default 0.6 clipped every object at the bottom, first run discarded) on our
+undistorted iPhone scenes with the same COLMAP/RoMa poses and SAM2 masks. Scoring (`score_neus.py --real`): inverse of
+NeuS's pose normalisation (its 'ground' up vector is a random RANSAC plane, so the inverse carries a rigid offset), then a
+7-DOF similarity nuisance alignment fitted on the TRAINING silhouettes (differentiable render, L1; corrections below),
+then our held-out silhouette IoU + strict linking audit on the largest component. Ours = golden v8.0, repeated runs.
+| object (GT genus) | NeuS components | NeuS largest comp. | NeuS held-out IoU | NeuS tunnel audit | alignment correction | ours strict / IoU |
+|---|---|---|---|---|---|---|
+| kettle (1) | 15 | closed, **genus 4** | 0.983 | 1/1 realised + 3 spurious handles | scale 0.96, shift 0.13 | 3/3 / 0.982 |
+| mug3rm (1) | 6 | open | 0.989 | 0/1 | 1.00, 0.001 | 3/3 / 0.985 |
+| wbottle (1, RoMa) | 13 | open (2242 boundary edges) | 0.898 | 0/1 | 1.09, 0.08 | 8/9 / 0.970 |
+| fish (0) | 7 | closed, **genus 9** | 0.963 | — (GT 0) | 1.03, 0.33 | 3/3 / 0.969 |
+Strict (closed, single component, right genus): NeuS 0/4, ours 17/18 runs. Silhouette accuracy is on par (NeuS equals
+or beats us on kettle and mug), so the difference is entirely topology: every NeuS mesh is a soup of 6–15 components,
+and the two that close carry 3 and 9 spurious handles (specular stainless body, printed mug, fish base). Renders:
+`~/run/neus09_vs_ours_real.png`, `~/run/neus09_<obj>_turn.mp4`. First-run numbers (radius 0.6) are superseded.

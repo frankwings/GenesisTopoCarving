@@ -58,6 +58,9 @@ def neus_to_colmap_world(scene_root, V):
     import omegaconf
     cfg = omegaconf.OmegaConf.create({"up_est_method": "ground", "center_est_method": "lookat"})
     # replicate normalize_poses but RETURN the transform: recompute poses_norm and solve the similarity from the camera centres
+    # the 'ground' up vector comes from a RANSAC plane fit (pyransac3d, random); launch.py seeds everything with 42
+    # right before the dataset builds -> reseed identically so the same plane (hence the same rotation) is found
+    import random; random.seed(42); np.random.seed(42); torch.manual_seed(42)
     poses_norm, _ = normalize_poses(c2w.clone(), pts.clone(), up_est_method=cfg.up_est_method, center_est_method=cfg.center_est_method)
     C0 = c2w[:, :, 3].numpy().astype(np.float64); C1 = poses_norm[:, :, 3].numpy().astype(np.float64)      # world -> normalised: C1 = s R C0 + t
     m0, m1 = C0.mean(0), C1.mean(0); H = (C0 - m0).T @ (C1 - m1); U, S, Vt = np.linalg.svd(H); Rr = Vt.T @ U.T
@@ -88,9 +91,39 @@ def score_real(scene, mesh_path):
         if len(ys) == 0: continue
         c = im.cam_from_world(); C = -c.rotation.matrix().T @ c.translation; rv.append(np.linalg.norm(C - X) * 0.5 * max(np.ptp(xs), np.ptp(ys)) / f)
     s = float(np.median(rv)) / 0.8; Vn = (Vw - X) / s
+    # 2026-10-23: NeuS's 'ground' up vector is a RANSAC plane fit (random; its seed state is not reproducible from
+    # outside), so the inverse above can be off by a rigid offset (kettle: held-out IoU 0.76 with a visible shift, fish
+    # 0.38). ICP onto the visual hull was tried and withdrawn (the hull over-estimates the object: mug 0.989 -> 0.920).
+    # Fair nuisance alignment: a 7-DOF similarity fitted to the TRAINING silhouettes (differentiable render, L1), then the
+    # held-out IoU is measured as for every other method. The correction size is recorded (align_sil).
+    import torch, nvdiffrast.torch as dr, torch.nn.functional as Fn
+    from real_scene import load_real_scene
+    import run_64v
+    sc = load_real_scene(f"real/{scene}"); ctx = dr.RasterizeCudaContext(); dev = "cuda"
+    big0 = largest(trimesh.Trimesh(Vn, np.asarray(m.faces, np.int64), process=False))
+    V0 = torch.tensor(np.asarray(big0.vertices), dtype=torch.float32, device=dev); F0 = torch.tensor(np.asarray(big0.faces), dtype=torch.int32, device=dev)
+    c0 = V0.mean(0, keepdim=True); gt = torch.tensor((sc.gt < 128).astype(np.float32), device=dev)
+    rv_ = torch.full((3,), 1e-4, device=dev, requires_grad=True)   # not exactly 0: the axis-angle map has zero gradient at r = 0; tv_ = torch.zeros(3, device=dev, requires_grad=True); ls_ = torch.zeros(1, device=dev, requires_grad=True)
+    opt = torch.optim.Adam([rv_, tv_, ls_], lr=5e-3)
+    def rotm(r):
+        th = r.norm() + 1e-9; k = r / th; K = torch.tensor([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]], device=dev)
+        return torch.eye(3, device=dev) + torch.sin(th) * K + (1 - torch.cos(th)) * (K @ K)
+    def apply(V): return (V - c0) @ rotm(rv_).T * torch.exp(ls_) + c0 + tv_
+    NV = sc.mvps.shape[0]
+    for it in range(300):
+        idx = torch.randperm(NV)[:8].tolist(); Vt = apply(V0); loss = 0
+        for i in idx:
+            pos = run_64v.transform_to_clip(Vt, sc.mvps[i]); rast, _ = dr.rasterize(ctx, pos, F0, resolution=[sc.res, sc.res])
+            ones = torch.ones(1, Vt.shape[0], 1, device=dev); col, _ = dr.interpolate(ones, rast, F0); sil = dr.antialias(col, rast, pos, F0)[0, :, :, 0]
+            loss = loss + (sil - gt[i]).abs().mean()
+        opt.zero_grad(); (loss / len(idx)).backward(); opt.step()
+    with torch.no_grad():
+        Rm = rotm(rv_); ang = float(np.degrees(np.arccos(np.clip((torch.trace(Rm).item() - 1) / 2, -1, 1)))); scl = float(torch.exp(ls_).item()); sh = float(tv_.norm().item())
+        Vn = ((torch.tensor(Vn, dtype=torch.float32, device=dev) - c0) @ Rm.T * scl + c0 + tv_).cpu().numpy().astype(np.float64)
+    align_icp = dict(method="silhouette-7dof-on-train-views", rot_deg=ang, scale=scl, shift=sh)
     F = np.asarray(m.faces, np.int64); out = f"{OUT}/{scene}_neus.npz"; np.savez(out, verts=Vn.astype(np.float32), tris=F.astype(np.int32))
     big = largest(trimesh.Trimesh(Vn, F, process=False)); outb = f"{OUT}/{scene}_neus_largest.npz"; np.savez(outb, verts=np.asarray(big.vertices, np.float32), tris=np.asarray(big.faces, np.int32))
-    rec = dict(scene=scene, mesh=mesh_path, align_resid=float(resid)); rec.update(rb.topo(Vn, F)); rec["largest"] = rb.topo(np.asarray(big.vertices, float), np.asarray(big.faces, np.int64))
+    rec = dict(scene=scene, mesh=mesh_path, align_resid=float(resid), align_icp=align_icp); rec.update(rb.topo(Vn, F)); rec["largest"] = rb.topo(np.asarray(big.vertices, float), np.asarray(big.faces, np.int64))
     env = dict(os.environ, REAL_DATA=f"real/{scene}", HULL_VOTE="10", REAL_VIEWCHECK="1", TRAIN_RES="512", TORCH_CUDA_ARCH_LIST="12.0", SHAPE=scene)
     ex = subprocess.run(["python3", "despike/exam_real.py", f"raw={out}", f"taubin={outb}"], cwd=R, env=env, capture_output=True, text=True)
     rec["exam"] = [l for l in ex.stdout.splitlines() if "[exam_real]" in l]
